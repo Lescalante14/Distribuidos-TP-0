@@ -30,6 +30,8 @@ def write_server(f):
     f.write("      - LOGGING_LEVEL=DEBUG\n")
     f.write("    networks:\n")
     f.write("      - testing_net\n")
+    f.write("    volumes:\n")
+    f.write("      - ./server/config.ini:/config.ini\n")
 
 def write_clients(f, clients_count):
     for i in range(1, int(clients_count) + 1):
@@ -44,6 +46,8 @@ def write_clients(f, clients_count):
         f.write("      - testing_net\n")
         f.write("    depends_on:\n")
         f.write("      - server\n")
+        f.write("    volumes:\n")
+        f.write("      - ./client/config.yaml:/config.yaml\n")
 
 def write_networks(f):
     f.write("networks:\n")
