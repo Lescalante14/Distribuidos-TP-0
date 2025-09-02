@@ -2,9 +2,6 @@ import socket
 import logging
 import signal
 
-from server.common.utils import store_bets
-from .protocol import Protocol, Response
-
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -13,20 +10,21 @@ class Server:
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
         self._end_gracefully = False
-        self._protocol = Protocol()
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def run(self):
         """
-        Lottery Server loop
+        Dummy Server loop
 
         Server that accept a new connections and establishes a
         communication with a client. After client with communucation
         finishes, servers starts to accept new connections again
         """
 
+        # TODO: Modify this program to handle signal to graceful shutdown
+        # the server
         while not self._end_gracefully:
             print("accepting new connection...")
             client_sock = self.__accept_new_connection()
@@ -45,41 +43,21 @@ class Server:
         logging.info(f'action: signal_received | result: success | signal: {signum}')
         self._end_gracefully = True
 
+
     def __handle_client_connection(self, client_sock):
         """
-        Handle client connection for lottery bets
+        Read message from a specific client socket and closes the socket
+
+        If a problem arises in the communication with the client, the
+        client socket will also be closed
         """
         try:
+            # TODO: Modify the receive to avoid short-reads
+            msg = client_sock.recv(1024).rstrip().decode('utf-8')
             addr = client_sock.getpeername()
-            
-            # Receive bet data using protocol
-            bet_data_bytes = self._protocol.receive_message(client_sock)
-            if bet_data_bytes is None:
-                logging.error(f'action: receive_message | result: fail | ip: {addr[0]}')
-                return
-            
-            # Deserialize bet data
-            try:
-                bet_data = self._protocol.deserialize_bet(bet_data_bytes)
-            except ValueError as e:
-                logging.error(f'action: deserialize_bet | result: fail | ip: {addr[0]} | error: {e}')
-                return
-            
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | dni: {bet_data.dni} | numero: {bet_data.numero}')
-            
-            # Store the bet
-            success = store_bets(bet_data)
-            
-            # Create response
-            if success:
-                response = Response(success=True, message="Bet stored successfully")
-            else:
-                response = Response(success=False, message="Failed to store bet")
-            
-            # Serialize and send response
-            response_bytes = self._protocol.serialize_response(response)
-            self._protocol.send_message(client_sock, response_bytes)
-            
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+            # TODO: Modify the send to avoid short-writes
+            client_sock.send("{}\n".format(msg).encode('utf-8'))
         except OSError as e:
             logging.error("action: receive_message | result: fail | error: {e}")
         finally:

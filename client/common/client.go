@@ -1,6 +1,8 @@
 package common
 
 import (
+	"bufio"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -20,23 +22,12 @@ type ClientConfig struct {
 	LoopPeriod    time.Duration
 }
 
-// BetData represents a lottery bet
-type BetData struct {
-	Nombre     string
-	Apellido   string
-	DNI        string
-	Nacimiento string
-	Numero     string
-}
-
 // Client Entity that encapsulates how
 type Client struct {
 	config        ClientConfig
 	conn          net.Conn
 	shutdownChan  chan os.Signal
 	endGracefully bool
-	betData       BetData
-	protocol      *Protocol
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -45,14 +36,6 @@ func NewClient(config ClientConfig) *Client {
 	client := &Client{
 		config:       config,
 		shutdownChan: make(chan os.Signal, 1),
-		betData: BetData{
-			Nombre:     os.Getenv("NOMBRE"),
-			Apellido:   os.Getenv("APELLIDO"),
-			DNI:        os.Getenv("DOCUMENTO"),
-			Nacimiento: os.Getenv("NACIMIENTO"),
-			Numero:     os.Getenv("NUMERO"),
-		},
-		protocol: NewProtocol(),
 	}
 	return client
 }
@@ -94,12 +77,13 @@ func (c *Client) handleShutdown() {
 	}
 }
 
-// StartClientLoop Send lottery bets to the server until some time threshold is met
+// StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
 	// Set up signal handlers
 	c.setupSignalHandlers()
 
-	// Send bets in a loop
+	// There is an autoincremental msgID to identify every message sent
+	// Messages if the message amount threshold has not been surpassed
 	for msgID := 1; msgID <= c.config.LoopAmount && !c.endGracefully; msgID++ {
 		// Check for shutdown signal before each iteration
 		c.handleShutdown()
@@ -108,40 +92,17 @@ func (c *Client) StartClientLoop() {
 			break
 		}
 
-		// Create the connection to the server
-		err := c.createClientSocket()
-		if err != nil {
-			log.Errorf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			continue
-		}
+		// Create the connection the server in every loop iteration. Send an
+		c.createClientSocket()
 
-		// Prepare bet data for binary protocol
-		betDataBinary := &BetDataBinary{
-			Nombre:     c.betData.Nombre,
-			Apellido:   c.betData.Apellido,
-			DNI:        c.betData.DNI,
-			Nacimiento: c.betData.Nacimiento,
-			Numero:     c.betData.Numero,
-		}
-
-		// Serialize bet data to binary format
-		betBytes, err := c.protocol.SerializeBet(betDataBinary)
-		if err != nil {
-			log.Errorf("action: serialize_bet | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
-			continue
-		}
-
-		// Send bet data
-		err = c.protocol.SendMessage(c.conn, betBytes)
-		if err != nil {
-			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
-			continue
-		}
-
-		// Receive response
-		responseBytes, err := c.protocol.ReceiveMessage(c.conn)
+		// TODO: Modify the send to avoid short-write
+		fmt.Fprintf(
+			c.conn,
+			"[CLIENT %v] Message N°%v\n",
+			c.config.ID,
+			msgID,
+		)
+		msg, err := bufio.NewReader(c.conn).ReadString('\n')
 		c.conn.Close()
 
 		if err != nil {
@@ -149,25 +110,13 @@ func (c *Client) StartClientLoop() {
 				c.config.ID,
 				err,
 			)
-			continue
+			return
 		}
 
-		// Parse response
-		response, err := c.protocol.DeserializeResponse(responseBytes)
-		if err != nil {
-			log.Errorf("action: parse_response | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			continue
-		}
-
-		// Check if bet was successful
-		if response.Success {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				c.betData.DNI,
-				c.betData.Numero,
-			)
-		} else {
-			log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | message: %v", c.config.ID, response.Message)
-		}
+		log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
+			c.config.ID,
+			msg,
+		)
 
 		// Wait a time between sending one message and the next one
 		// Use a timer that can be interrupted by signals
@@ -181,6 +130,7 @@ func (c *Client) StartClientLoop() {
 			c.endGracefully = true
 			timer.Stop()
 		}
+
 	}
 
 	if c.endGracefully {
