@@ -2,8 +2,9 @@ import socket
 import logging
 import signal
 
-from server.common.utils import store_bets
-from .protocol import Protocol, Response
+from common.utils import Bet, store_bets
+
+from common.protocol import Protocol, Response
 
 
 class Server:
@@ -68,13 +69,12 @@ class Server:
             logging.info(f'action: receive_message | result: success | ip: {addr[0]} | dni: {bet_data.dni} | numero: {bet_data.numero}')
             
             # Store the bet
-            success = store_bets(bet_data)
+            bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
+            logging.info(f'action: store_bet | result: success | bet: {bet}')
+            store_bets(list([bet]))
             
             # Create response
-            if success:
-                response = Response(success=True, message="Bet stored successfully")
-            else:
-                response = Response(success=False, message="Failed to store bet")
+            response = Response(success=True, message="Bet stored successfully")
             
             # Serialize and send response
             response_bytes = self._protocol.serialize_response(response)
