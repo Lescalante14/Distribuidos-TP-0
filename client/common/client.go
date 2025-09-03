@@ -101,7 +101,7 @@ func (c *Client) handleShutdown() {
 }
 
 // readBetsChunk reads a chunk of bets from the CSV file starting from a given position
-func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) ([]BetData, error) {
+func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData {
 	var bets []BetData
 	linesRead := 0
 
@@ -130,7 +130,7 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) ([]BetData
 		bets = append(bets, bet)
 	}
 
-	return bets, scanner.Err()
+	return bets
 }
 
 // StartClientLoop Send lottery bets to the server until some time threshold is met
@@ -162,11 +162,7 @@ func (c *Client) StartClientLoop() {
 		}
 
 		// Read next chunk of bets
-		batchBets, err := c.readBetsChunk(scanner, c.config.BatchMaxAmount)
-		if err != nil {
-			log.Errorf("action: read_chunk | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			break
-		}
+		batchBets := c.readBetsChunk(scanner, c.config.BatchMaxAmount)
 
 		// If no bets read, we've reached the end of file
 		if len(batchBets) == 0 {
@@ -242,6 +238,11 @@ func (c *Client) StartClientLoop() {
 			c.endGracefully = true
 			timer.Stop()
 		}
+	}
+
+	// Check for scanner errors after processing is complete
+	if err := scanner.Err(); err != nil {
+		log.Errorf("action: scanner_error | result: fail | client_id: %v | error: %v", c.config.ID, err)
 	}
 
 	if c.endGracefully {
