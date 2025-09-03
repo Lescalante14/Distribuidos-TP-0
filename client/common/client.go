@@ -1,9 +1,12 @@
 package common
 
 import (
+	"bufio"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -14,10 +17,11 @@ var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
-	ID            string
-	ServerAddress string
-	LoopAmount    int
-	LoopPeriod    time.Duration
+	ID             string
+	ServerAddress  string
+	LoopAmount     int
+	LoopPeriod     time.Duration
+	BatchMaxAmount int
 }
 
 // BetData represents a lottery bet
@@ -37,6 +41,7 @@ type Client struct {
 	endGracefully bool
 	betData       BetData
 	protocol      *Protocol
+	csvFilePath   string
 }
 
 // NewClient Initializes a new client receiving the configuration
@@ -52,7 +57,8 @@ func NewClient(config ClientConfig) *Client {
 			Nacimiento: os.Getenv("NACIMIENTO"),
 			Numero:     os.Getenv("NUMERO"),
 		},
-		protocol: NewProtocol(),
+		protocol:    NewProtocol(),
+		csvFilePath: fmt.Sprintf("/data/agency-%s.csv", config.ID),
 	}
 	return client
 }
@@ -94,13 +100,60 @@ func (c *Client) handleShutdown() {
 	}
 }
 
+// readBetsFromCSV reads bets from the CSV file
+func (c *Client) readBetsFromCSV() ([]BetData, error) {
+	file, err := os.Open(c.csvFilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var bets []BetData
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		// Parse CSV line manually since the format is simple
+		fields := strings.Split(line, ",")
+		if len(fields) != 5 {
+			log.Warningf("action: parse_csv_line | result: fail | line: %s | reason: invalid field count", line)
+			continue
+		}
+
+		bet := BetData{
+			Nombre:     strings.TrimSpace(fields[0]),
+			Apellido:   strings.TrimSpace(fields[1]),
+			DNI:        strings.TrimSpace(fields[2]),
+			Nacimiento: strings.TrimSpace(fields[3]),
+			Numero:     strings.TrimSpace(fields[4]),
+		}
+		bets = append(bets, bet)
+	}
+
+	return bets, scanner.Err()
+}
+
 // StartClientLoop Send lottery bets to the server until some time threshold is met
 func (c *Client) StartClientLoop() {
 	// Set up signal handlers
 	c.setupSignalHandlers()
 
-	// Send bets in a loop
-	for msgID := 1; msgID <= c.config.LoopAmount && !c.endGracefully; msgID++ {
+	// Read all bets from CSV file
+	allBets, err := c.readBetsFromCSV()
+	if err != nil {
+		log.Criticalf("action: read_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	log.Infof("action: read_csv | result: success | client_id: %v | total_bets: %v", c.config.ID, len(allBets))
+
+	// Process bets in batches
+	betIndex := 0
+	for batchNum := 1; batchNum <= c.config.LoopAmount && !c.endGracefully && betIndex < len(allBets); batchNum++ {
 		// Check for shutdown signal before each iteration
 		c.handleShutdown()
 		if c.endGracefully {
@@ -115,25 +168,25 @@ func (c *Client) StartClientLoop() {
 			continue
 		}
 
-		// Prepare bet data for binary protocol
-		betDataBinary := &BetDataBinary{
-			Nombre:     c.betData.Nombre,
-			Apellido:   c.betData.Apellido,
-			DNI:        c.betData.DNI,
-			Nacimiento: c.betData.Nacimiento,
-			Numero:     c.betData.Numero,
+		// Prepare batch of bets
+		batchSize := c.config.BatchMaxAmount
+		if betIndex+batchSize > len(allBets) {
+			batchSize = len(allBets) - betIndex
 		}
 
-		// Serialize bet data to binary format
-		betBytes, err := c.protocol.SerializeBet(betDataBinary)
+		batchBets := allBets[betIndex : betIndex+batchSize]
+		betIndex += batchSize
+
+		// Serialize batch of bets
+		batchBytes, err := c.protocol.SerializeBatch(batchBets)
 		if err != nil {
-			log.Errorf("action: serialize_bet | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()
 			continue
 		}
 
-		// Send bet data
-		err = c.protocol.SendMessage(c.conn, betBytes)
+		// Send batch data
+		err = c.protocol.SendMessage(c.conn, batchBytes)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()
@@ -159,11 +212,11 @@ func (c *Client) StartClientLoop() {
 			continue
 		}
 
-		// Check if bet was successful
+		// Check if batch was successful
 		if response.Success {
-			log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
-				c.betData.DNI,
-				c.betData.Numero,
+			log.Infof("action: apuesta_enviada | result: success | client_id: %v | batch_size: %v",
+				c.config.ID,
+				len(batchBets),
 			)
 		} else {
 			log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | message: %v", c.config.ID, response.Message)

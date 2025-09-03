@@ -59,24 +59,47 @@ class Server:
                 logging.error(f'action: receive_message | result: fail | ip: {addr[0]}')
                 return
             
-            # Deserialize bet data
+            # Deserialize batch data
             try:
-                bet_data = self._protocol.deserialize_bet(bet_data_bytes)
+                bet_data_list = self._protocol.deserialize_batch(bet_data_bytes)
             except ValueError as e:
-                logging.error(f'action: deserialize_bet | result: fail | ip: {addr[0]} | error: {e}')
+                logging.error(f'action: deserialize_batch | result: fail | ip: {addr[0]} | error: {e}')
                 return
             
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | dni: {bet_data.dni} | numero: {bet_data.numero}')
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | bets_count: {len(bet_data_list)}')
             
-            # Store the bet
-            bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
-            logging.info(f'action: store_bet | result: success | bet: {bet}')
-            store_bets(list([bet]))
-            # MANDATORY LOG FOR TESTING
-            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
+            # Process all bets in the batch
+            bets_to_store = []
+            success = True
+            
+            for bet_data in bet_data_list:
+                try:
+                    # Store the bet
+                    bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
+                    bets_to_store.append(bet)
+                    # MANDATORY LOG FOR TESTING
+                    logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
+                except Exception as e:
+                    logging.error(f'action: process_bet | result: fail | dni: {bet_data.dni} | error: {e}')
+                    success = False
+                    break
+            
+            # Store all bets if processing was successful
+            if success and bets_to_store:
+                try:
+                    store_bets(bets_to_store)
+                    logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets_to_store)}')
+                except Exception as e:
+                    logging.error(f'action: store_bets | result: fail | error: {e}')
+                    success = False
+            elif not success:
+                logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bet_data_list)}')
             
             # Create response
-            response = Response(success=True, message="Bet stored successfully")
+            if success:
+                response = Response(success=True, message=f"Batch of {len(bets_to_store)} bets stored successfully")
+            else:
+                response = Response(success=False, message="Error processing batch")
             
             # Serialize and send response
             response_bytes = self._protocol.serialize_response(response)

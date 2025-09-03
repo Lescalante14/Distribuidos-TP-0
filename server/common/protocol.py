@@ -100,6 +100,45 @@ class Protocol:
         
         return bet
     
+    def deserialize_batch(self, data):
+        """Convert binary data to a list of BetData"""
+        bets = []
+        offset = 0
+        
+        while offset < len(data):
+            # Find the next bet starting from current offset
+            bet_end = self._find_next_bet_end(data, offset)
+            if bet_end == -1:
+                # No more bets found, use remaining data
+                bet_end = len(data)
+            
+            # Extract single bet data
+            bet_data = data[offset:bet_end]
+            if len(bet_data) > 0:
+                try:
+                    bet = self.deserialize_bet(bet_data)
+                    bets.append(bet)
+                except ValueError as e:
+                    # If we can't parse a bet, we'll return what we have so far
+                    # and let the caller handle the error
+                    break
+            
+            offset = bet_end
+        
+        return bets
+    
+    def _find_next_bet_end(self, data, offset):
+        """Find the end of the next bet (start of next bet or end of data)"""
+        if offset >= len(data):
+            return -1
+        
+        # Look for the next endianness marker
+        for i in range(offset + 1, len(data)):
+            if data[i] == ENDIANNESS_MARKER:
+                return i
+        
+        return -1  # No next bet found
+    
     def _find_next_separator(self, data, offset):
         """Find the next field separator starting from offset"""
         for i in range(offset, len(data)):

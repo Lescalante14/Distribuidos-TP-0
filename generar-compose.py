@@ -51,6 +51,7 @@ def write_clients(f, clients_count):
         f.write("      - server\n")
         f.write("    volumes:\n")
         f.write("      - ./client/config.yaml:/config.yaml\n")
+        f.write(f"      - ./data/dataset/agency-{i}.csv:/data/agency-{i}.csv\n")
 
 def write_networks(f):
     f.write("networks:\n")
