@@ -1,9 +1,11 @@
 import logging
 
 # Protocol constants
-ENDIANNESS_MARKER = 0x01  # Little endian marker
+ENDIANNESS_MARKER = 0x01  # Big endian marker
 FIELD_SEPARATOR = 0x00    # Null byte separator
-
+PAYLOAD_LENGTH_BYTES = 4  # 4 bytes for the length of the message
+MAX_MESSAGE_SIZE = 1024 * 1024 * 2 # 2MB
+RESPONSE_HEADER_SIZE = 3 # 3 bytes for the endianness marker, success flag, and separator
 
 class BetData:
     """Represents a lottery bet in binary format"""
@@ -43,10 +45,19 @@ class Protocol:
         """Convert 4 bytes to integer in big-endian format"""
         return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]
     
+    def _recv_exact(self, sock, n):
+        """Receive exactly n bytes or return None if connection closed."""
+        buf = bytearray()
+        while len(buf) < n:
+            chunk = sock.recv(n - len(buf))
+            if not chunk:   # peer closed before full data
+                return None
+            buf.extend(chunk)
+        return bytes(buf)
     
     def deserialize_bet(self, data):
         """Convert binary data to BetData"""
-        if len(data) < 2:
+        if len(data) < 2: # 2 bytes for the endianness marker and separator
             raise ValueError("data too short")
         
         # Check endianness marker
@@ -99,30 +110,34 @@ class Protocol:
     def send_message(self, sock, data):
         """Send a message using the protocol: length + data"""
         length = len(data)
+
+        if length < 0 or length > MAX_MESSAGE_SIZE:
+            return None
         
         # Send length (4 bytes, big endian)
         length_bytes = self._int_to_bytes(length)
-        sock.sendall(length_bytes)
+        sock.sendall(length_bytes) #sendall is guaranteed to send the entire message
         
         # Send data
-        sock.sendall(data)
+        sock.sendall(data) #sendall is guaranteed to send the entire message
     
     def receive_message(self, sock):
         """Receive a message using the protocol: length + data"""
+        
         # Receive length (4 bytes)
-        length_data = sock.recv(4)
-        if len(length_data) < 4:
+        length_data = self._recv_exact(sock, PAYLOAD_LENGTH_BYTES)
+        if length_data is None:
             return None
         
         length = self._bytes_to_int(length_data)
+
+        if length < 0 or length > MAX_MESSAGE_SIZE:
+            return None
         
         # Receive message data
-        message_data = b''
-        while len(message_data) < length:
-            chunk = sock.recv(length - len(message_data))
-            if not chunk:
-                return None
-            message_data += chunk
+        message_data = self._recv_exact(sock, length)
+        if message_data is None:
+            return None
         
         return message_data
     
@@ -130,7 +145,7 @@ class Protocol:
         """Convert Response to binary format"""
         # Response format: [endianness][success][separator][message]
         message_bytes = resp.message.encode('utf-8')
-        total_size = 1 + 1 + 1 + len(message_bytes)  # endianness + success + separator + message
+        total_size = RESPONSE_HEADER_SIZE + len(message_bytes)  # endianness + success + separator + message bytes
         
         buffer = bytearray(total_size)
         offset = 0

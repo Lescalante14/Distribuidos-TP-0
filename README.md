@@ -206,7 +206,7 @@ El protocolo implementado para el sistema de Lotería Nacional utiliza un format
 ```
 
 Donde:
-- **endianness_marker**: 1 byte (0x01) para indicar little-endian
+- **endianness_marker**: 1 byte (0x01) para indicar big-endian
 - **separator**: 1 byte (0x00) para separar campos
 - **campos**: Strings UTF-8 codificados
 - **Nota**: No hay separador final después del último campo (numero)

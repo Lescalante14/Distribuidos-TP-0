@@ -8,8 +8,11 @@ import (
 
 const (
 	// Protocol constants
-	ENDIANNESS_MARKER = 0x01 // Little endian marker
-	FIELD_SEPARATOR   = 0x00 // Null byte separator
+	ENDIANNESS_MARKER    = 0x01            // Big endian marker
+	FIELD_SEPARATOR      = 0x00            // Null byte separator
+	MAX_MESSAGE_SIZE     = 1024 * 1024 * 2 // 2MB
+	PAYLOAD_LENGTH_BYTES = 4               // 4 bytes for the length of the message
+	RESPONSE_HEADER_SIZE = 3               // 3 bytes for the endianness marker, success flag, and separator
 )
 
 // BetDataBinary represents a lottery bet in binary format
@@ -27,6 +30,17 @@ type Protocol struct{}
 // NewProtocol creates a new protocol instance
 func NewProtocol() *Protocol {
 	return &Protocol{}
+}
+
+func writeAll(w io.Writer, b []byte) error {
+	for len(b) > 0 {
+		n, err := w.Write(b)
+		if err != nil {
+			return err
+		}
+		b = b[n:]
+	}
+	return nil
 }
 
 // SerializeBet converts BetData to binary format
@@ -87,27 +101,26 @@ func (p *Protocol) SendMessage(writer io.Writer, data []byte) error {
 	log.Debugf("action: send_message | result: in_progress | length: %v", length)
 
 	// Send length (4 bytes, big endian)
-	lengthBytes := make([]byte, 4)
+	lengthBytes := make([]byte, PAYLOAD_LENGTH_BYTES)
 	binary.BigEndian.PutUint32(lengthBytes, length)
 	log.Debugf("action: send_message | result: in_progress | lengthBytes: %v", lengthBytes)
 
-	//TODO: check if this ensure that the message is sent completely?
-	_, err := writer.Write(lengthBytes)
+	err := writeAll(writer, lengthBytes)
 	if err != nil {
 		return err
 	}
 
 	// Send data
-	_, err = writer.Write(data)
+	err = writeAll(writer, data)
 	return err
 }
 
 // ReceiveMessage receives a message using the protocol: length + data
 func (p *Protocol) ReceiveMessage(reader io.Reader) ([]byte, error) {
 	// Receive length (4 bytes)
-	lengthBytes := make([]byte, 4)
+	lengthBytes := make([]byte, PAYLOAD_LENGTH_BYTES)
 	log.Debugf("action: receive_message | result: in_progress | lengthBytes: %v", lengthBytes)
-	_, err := io.ReadFull(reader, lengthBytes)
+	_, err := io.ReadFull(reader, lengthBytes) //readfull is guaranteed to read the entire message
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +129,7 @@ func (p *Protocol) ReceiveMessage(reader io.Reader) ([]byte, error) {
 
 	// Receive message data
 	messageBytes := make([]byte, length)
-	_, err = io.ReadFull(reader, messageBytes)
+	_, err = io.ReadFull(reader, messageBytes) //readfull is guaranteed to read the entire message
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +145,7 @@ type Response struct {
 
 // DeserializeResponse converts binary data to Response
 func (p *Protocol) DeserializeResponse(data []byte) (*Response, error) {
-	if len(data) < 3 {
+	if len(data) < RESPONSE_HEADER_SIZE { // 3 bytes for the endianness marker, success flag, and separator
 		return nil, errors.New("response data too short")
 	}
 
@@ -144,7 +157,7 @@ func (p *Protocol) DeserializeResponse(data []byte) (*Response, error) {
 	resp := &Response{}
 
 	// Read success flag
-	resp.Success = data[1] == 0x01
+	resp.Success = data[1] == 0x01 // 0x01 for success, 0x00 for failure
 
 	// Skip separator
 	if data[2] != FIELD_SEPARATOR {
