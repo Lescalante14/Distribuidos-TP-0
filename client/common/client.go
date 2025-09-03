@@ -100,20 +100,15 @@ func (c *Client) handleShutdown() {
 	}
 }
 
-// readBetsFromCSV reads bets from the CSV file
-func (c *Client) readBetsFromCSV() ([]BetData, error) {
-	// TODO: DOES NOT READ THE WHOLE FILE IN MEMORY
-	file, err := os.Open(c.csvFilePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
+// readBetsChunk reads a chunk of bets from the CSV file starting from a given position
+func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) ([]BetData, error) {
 	var bets []BetData
-	scanner := bufio.NewScanner(file)
+	linesRead := 0
 
-	for scanner.Scan() {
+	for scanner.Scan() && linesRead < chunkSize {
 		line := scanner.Text()
+		linesRead++ // Always increment for every line read
+
 		if line == "" {
 			continue
 		}
@@ -143,18 +138,22 @@ func (c *Client) StartClientLoop() {
 	// Set up signal handlers
 	c.setupSignalHandlers()
 
-	// Read all bets from CSV file
-	allBets, err := c.readBetsFromCSV()
+	// Open CSV file for streaming
+	file, err := os.Open(c.csvFilePath)
 	if err != nil {
-		log.Criticalf("action: read_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		log.Criticalf("action: open_csv | result: fail | client_id: %v | error: %v", c.config.ID, err)
 		return
 	}
+	defer file.Close()
 
-	log.Infof("action: read_csv | result: success | client_id: %v | total_bets: %v", c.config.ID, len(allBets))
+	scanner := bufio.NewScanner(file)
+	totalBetsProcessed := 0
+	batchNum := 1
 
-	// Process bets in batches
-	betIndex := 0
-	for batchNum := 1; batchNum <= c.config.LoopAmount && !c.endGracefully && betIndex < len(allBets); batchNum++ {
+	log.Infof("action: start_processing | result: success | client_id: %v | batch_size: %v", c.config.ID, c.config.BatchMaxAmount)
+
+	// Process bets in chunks
+	for batchNum <= c.config.LoopAmount && !c.endGracefully {
 		// Check for shutdown signal before each iteration
 		c.handleShutdown()
 		if c.endGracefully {
@@ -162,21 +161,25 @@ func (c *Client) StartClientLoop() {
 			break
 		}
 
+		// Read next chunk of bets
+		batchBets, err := c.readBetsChunk(scanner, c.config.BatchMaxAmount)
+		if err != nil {
+			log.Errorf("action: read_chunk | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			break
+		}
+
+		// If no bets read, we've reached the end of file
+		if len(batchBets) == 0 {
+			log.Infof("action: eof_reached | result: success | client_id: %v | total_bets_processed: %v", c.config.ID, totalBetsProcessed)
+			break
+		}
+
 		// Create the connection to the server
-		err := c.createClientSocket()
+		err = c.createClientSocket()
 		if err != nil {
 			log.Errorf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			continue
 		}
-
-		// Prepare batch of bets
-		batchSize := c.config.BatchMaxAmount
-		if betIndex+batchSize > len(allBets) {
-			batchSize = len(allBets) - betIndex
-		}
-
-		batchBets := allBets[betIndex : betIndex+batchSize]
-		betIndex += batchSize
 
 		// Serialize batch of bets
 		batchBytes, err := c.protocol.SerializeBatch(batchBets)
@@ -215,13 +218,17 @@ func (c *Client) StartClientLoop() {
 
 		// Check if batch was successful
 		if response.Success {
-			log.Infof("action: apuesta_enviada | result: success | client_id: %v | batch_size: %v",
+			totalBetsProcessed += len(batchBets)
+			log.Infof("action: apuesta_enviada | result: success | client_id: %v | batch_size: %v | total_processed: %v",
 				c.config.ID,
 				len(batchBets),
+				totalBetsProcessed,
 			)
 		} else {
 			log.Errorf("action: apuesta_enviada | result: fail | client_id: %v | message: %v", c.config.ID, response.Message)
 		}
+
+		batchNum++
 
 		// Wait a time between sending one message and the next one
 		// Use a timer that can be interrupted by signals
@@ -238,8 +245,8 @@ func (c *Client) StartClientLoop() {
 	}
 
 	if c.endGracefully {
-		log.Infof("action: shutdown | result: success | client_id: %v", c.config.ID)
+		log.Infof("action: shutdown | result: success | client_id: %v | total_bets_processed: %v", c.config.ID, totalBetsProcessed)
 	} else {
-		log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+		log.Infof("action: loop_finished | result: success | client_id: %v | total_bets_processed: %v", c.config.ID, totalBetsProcessed)
 	}
 }
