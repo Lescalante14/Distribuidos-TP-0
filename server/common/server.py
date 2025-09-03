@@ -77,8 +77,8 @@ class Server:
                     # Store the bet
                     bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
                     bets_to_store.append(bet)
-                    # MANDATORY LOG FOR TESTING
-                    logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
+                    # MANDATORY LOG FOR TESTING ej 5
+                    # logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
                 except Exception as e:
                     logging.error(f'action: process_bet | result: fail | dni: {bet_data.dni} | error: {e}')
                     success = False
