@@ -102,6 +102,7 @@ func (c *Client) handleShutdown() {
 
 // readBetsFromCSV reads bets from the CSV file
 func (c *Client) readBetsFromCSV() ([]BetData, error) {
+	// TODO: DOES NOT READ THE WHOLE FILE IN MEMORY
 	file, err := os.Open(c.csvFilePath)
 	if err != nil {
 		return nil, err
