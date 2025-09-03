@@ -105,7 +105,9 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData 
 	var bets []BetData
 	linesRead := 0
 
-	for scanner.Scan() && linesRead < chunkSize {
+	// Read exactly chunkSize lines or until EOF
+	for linesRead < chunkSize && scanner.Scan() {
+
 		line := scanner.Text()
 		linesRead++ // Always increment for every line read
 
@@ -163,6 +165,10 @@ func (c *Client) StartClientLoop() {
 
 		// Read next chunk of bets
 		batchBets := c.readBetsChunk(scanner, c.config.BatchMaxAmount)
+
+		// Debug: Log the chunk size and batch number
+		log.Infof("action: read_chunk | result: success | client_id: %v | batch_num: %v | chunk_size: %v",
+			c.config.ID, batchNum, len(batchBets))
 
 		// If no bets read, we've reached the end of file
 		if len(batchBets) == 0 {
