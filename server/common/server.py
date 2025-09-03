@@ -72,6 +72,7 @@ class Server:
             bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
             logging.info(f'action: store_bet | result: success | bet: {bet}')
             store_bets(list([bet]))
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
             
             # Create response
             response = Response(success=True, message="Bet stored successfully")
