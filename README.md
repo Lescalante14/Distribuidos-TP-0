@@ -178,3 +178,55 @@ Se espera que se redacte una sección del README en donde se indique cómo ejecu
 Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/tp0-tests) de caja negra. Se exige que la resolución de los ejercicios pase tales pruebas, o en su defecto que las discrepancias sean justificadas y discutidas con los docentes antes del día de la entrega. El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación. Respetar las entradas de log planteadas en los ejercicios, pues son las que se chequean en cada uno de los tests.
 
 La corrección personal tendrá en cuenta la calidad del código entregado y casos de error posibles, se manifiesten o no durante la ejecución del trabajo práctico. Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
+
+
+---
+
+# RESOLUCIÓN EJERCICIO 4:
+
+## Cómo probar:
+
+```bash
+make docker-compose-up
+```
+
+Para probar el graceful shutdown, ejecutar en otra terminal:
+
+```bash
+make docker-compose-down
+```
+
+o en otra terminal:
+
+```bash
+docker kill --signal=SIGTERM <container_id>
+```
+
+## Explicación del graceful shutdown:
+
+El ejercicio 4 implementa el manejo de la señal SIGTERM para que tanto el servidor como el cliente terminen de forma "graceful" (ordenada), cerrando correctamente todos los recursos antes de finalizar.
+
+### Servidor (Python):
+
+- **Manejo de señales**: Registra un handler para SIGTERM usando `signal.signal(signal.SIGTERM, self._signal_handler)`
+- **Flag de control**: Usa `_end_gracefully` para controlar el bucle principal
+- **Cierre ordenado**: Al recibir SIGTERM, sale del bucle de aceptación de conexiones y cierra el socket del servidor
+- **Logs de shutdown**: Registra cada paso del proceso de cierre
+
+### Cliente (Go):
+
+- **Channel de señales**: Usa `shutdownChan` para recibir notificaciones de SIGTERM
+- **Verificación en bucle**: En cada iteración verifica si debe terminar
+- **Cierre de conexión**: Cierra la conexión TCP activa antes de terminar
+- **Timer interruptible**: El timer entre mensajes puede ser interrumpido por señales
+
+### Ejemplo de logs durante shutdown:
+
+```bash
+server   | action: signal_received | result: success | signal: 15
+server   | action: shutdown | result: in_progress
+server   | action: shutdown | result: success | resource: server_socket
+client1  | action: signal_received | result: success | signal: 15
+client1  | action: shutdown | result: in_progress | client_id: 1
+client1  | action: shutdown | result: success | client_id: 1
+```
