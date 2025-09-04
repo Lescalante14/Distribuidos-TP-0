@@ -305,3 +305,91 @@ client1 | action: consulta_ganadores | result: success | client_id: 1 | cant_gan
 - **Almacenamiento**: Apuestas guardadas en `bets.csv` con persistencia
 
 Esta implementación proporciona un sistema completo y robusto para el sorteo de lotería, manteniendo la integridad de los datos y la privacidad entre agencias.
+
+---
+
+## Sistema Multithreaded y Sincronización (Ejercicio 8)
+
+### Implementación de Concurrencia y Sincronización
+
+El ejercicio 8 extiende el sistema del ejercicio 7 implementando multithreading en el servidor para procesar múltiples clientes en paralelo, eliminando la necesidad de polling y mejorando significativamente el rendimiento.
+
+#### Características Principales
+
+**Arquitectura Multithreaded:**
+- **Un thread por cliente**: Cada conexión de cliente se maneja en un thread dedicado
+- **Conexiones persistentes**: Los clientes mantienen la conexión abierta durante toda la sesión
+- **Eliminación del polling**: Los clientes reciben respuestas inmediatas sin necesidad de reintentos
+- **Sincronización thread-safe**: Monitores para proteger recursos compartidos
+
+#### Implementación Técnica
+
+**Servidor (Python) - `server/common/server.py`:**
+- **Thread principal**: Acepta conexiones y crea threads para cada cliente
+- **Threads de cliente**: Manejan toda la comunicación con un cliente específico
+- **Monitores de sincronización**: `BetsMonitor` y `LotteryMonitor` para recursos compartidos
+- **Gestión de threads**: Control de ciclo de vida de threads y limpieza
+
+**Monitores de Sincronización:**
+- **`BetsMonitor`**: Protege el acceso al archivo de apuestas (`bets.csv`)
+- **`LotteryMonitor`**: Controla el estado del sorteo y distribución de ganadores
+- **Thread safety**: Garantiza consistencia de datos en entorno concurrente
+
+#### Ventajas del Sistema Multithreaded
+
+1. **Concurrencia Real**: Múltiples clientes procesados simultáneamente
+2. **Eliminación de Polling**: Respuestas inmediatas sin reintentos
+3. **Mejor Rendimiento**: Reducción de overhead de conexión
+4. **Escalabilidad**: Sistema puede manejar muchos clientes concurrentes
+5. **Sincronización Robusta**: Monitores garantizan integridad de datos
+6. **Gestión de Recursos**: Control automático de threads y conexiones
+
+#### Flujo del Sistema Multithreaded
+
+**Inicio del Servidor:**
+1. Servidor principal inicia y espera conexiones
+2. Cada conexión entrante crea un thread dedicado
+3. Thread maneja toda la comunicación con ese cliente
+
+**Procesamiento Concurrente:**
+1. Múltiples clientes envían apuestas simultáneamente
+2. `BetsMonitor` sincroniza escrituras al archivo de apuestas
+3. Cada cliente notifica finalización cuando termina
+4. `LotteryMonitor` controla cuándo ejecutar el sorteo
+
+**Sorteo y Consulta:**
+1. Cuando todas las agencias terminan, se ejecuta el sorteo
+2. `LotteryMonitor` distribuye ganadores por agencia
+3. Consultas de ganadores se resuelven inmediatamente
+4. No hay polling: respuestas directas y eficientes
+
+#### Logs de Ejemplo
+
+**Conexión de Cliente:**
+```bash
+server | action: server_start | result: success | clients_count: 5
+server | action: client_connected | result: success | client_id: 172.25.125.3:12345
+```
+
+**Procesamiento Concurrente:**
+```bash
+server | action: receive_message | result: success | client_id: 172.25.125.3:12345 | bets_count: 99
+server | action: receive_message | result: success | client_id: 172.25.125.4:12346 | bets_count: 99
+server | action: apuesta_recibida | result: success | cantidad: 99
+```
+
+**Finalización y Sorteo:**
+```bash
+server | action: finish_notification | result: success | agency: 1
+server | action: sorteo | result: success
+server | action: consulta_ganadores | result: success | client_id: 172.25.125.3:12345 | cant_ganadores: 1
+```
+
+#### Consideraciones de Implementación
+
+- **GIL de Python**: No es problema porque las tareas son I/O intensivas, no CPU intensivas
+- **Monitores**: Implementan locks para proteger recursos compartidos
+- **Gestión de Threads**: Limpieza automática cuando los clientes se desconectan
+- **Graceful Shutdown**: Manejo correcto de cierre de threads y conexiones
+
+Esta implementación proporciona un sistema altamente concurrente y eficiente, eliminando las limitaciones del polling y mejorando significativamente la experiencia del usuario.
