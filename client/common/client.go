@@ -410,7 +410,7 @@ func (c *Client) queryWinners() error {
 			log.Infof("action: consulta_ganadores | result: success | client_id: %v | cant_ganadores: %v", c.config.ID, winnersResponse.Count)
 			return nil // Success, exit polling loop
 		} else {
-			log.Infof("action: consulta_ganadores | result: waiting | client_id: %v | attempt: %v | message: %v", c.config.ID, attempt, winnersResponse.Message)
+			log.Infof("action: consulta_ganadores_waiting | result: success | client_id: %v | attempt: %v | message: %v", c.config.ID, attempt, winnersResponse.Message)
 			if attempt < maxRetries {
 				time.Sleep(retryDelay)
 			}
