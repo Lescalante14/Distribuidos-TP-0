@@ -178,3 +178,40 @@ Se espera que se redacte una sección del README en donde se indique cómo ejecu
 Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/tp0-tests) de caja negra. Se exige que la resolución de los ejercicios pase tales pruebas, o en su defecto que las discrepancias sean justificadas y discutidas con los docentes antes del día de la entrega. El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación. Respetar las entradas de log planteadas en los ejercicios, pues son las que se chequean en cada uno de los tests.
 
 La corrección personal tendrá en cuenta la calidad del código entregado y casos de error posibles, se manifiesten o no durante la ejecución del trabajo práctico. Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
+
+
+---
+
+# RESOLUCIÓN EJERCICIO 2:
+
+## Como probar:
+
+```bash
+make docker-image
+```
+
+modificar el archivo de configuración de la aplicación
+```bash
+make docker-image
+```
+
+Y debería ver como se cachea la imagen y se reusa la misma en el siguiente `docker-compose-up`
+
+
+Otra forma alternativa es:
+```bash
+make docker-compose-up
+```
+
+y modificar el archivo de configuración de la aplicación
+
+```bash
+docker compose -f docker-compose-dev.yaml up -d
+```
+para probar el cambio sin tener que reconstruir la imagen
+
+## Explicación y observaciones:
+Esta resolución constó de dos partes:
+
+1. Se crearon archivos .dockerignore en el cliente y el servidor para ignorar los archivos de configuración.
+2. Se inyectaron estos archivos a los containers usando docker volumes 
