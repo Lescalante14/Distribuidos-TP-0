@@ -184,6 +184,14 @@ La corrección personal tendrá en cuenta la calidad del código entregado y cas
 
 # RESOLUCIÓN EJERCICIO 1:
 
+## Como probar:
+
+```bash
+./generar-compose.sh docker-compose-dev.yaml 5
+```
+
+## Explicación y observaciones:
+
 Creé un script de bash `generar-compose.sh` que basicamente llama a un script de Python `generar-compose.py` que genera el archivo de Docker Compose de salida.
 
 Lo realice en python por simplicidad, legibilidad y modificabilidad.
