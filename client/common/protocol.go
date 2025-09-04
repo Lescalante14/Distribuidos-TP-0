@@ -60,7 +60,7 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 	// Calculate total size for all bets
 	totalSize := 0
 	for _, bet := range bets {
-		totalSize += p.calculateBetSize(&bet)
+		totalSize += p.calculateBetSize(&bet) + 1 // +1 for the separator between bets
 	}
 
 	log.Debugf("action: serialize_batch | result: in_progress | totalSize: %v", totalSize)
@@ -70,8 +70,12 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 	offset := 0
 
 	// Serialize each bet
-	for _, bet := range bets {
+	for i, bet := range bets {
 		p.serializeBetFields(&bet, buffer, &offset)
+		if i < len(bets)-1 { // add separator between bets but not for the last bet
+			buffer[offset] = FIELD_SEPARATOR
+			offset++
+		}
 	}
 
 	log.Debugf("action: serialize_batch | result: success | buffer_size: %v", len(buffer))
