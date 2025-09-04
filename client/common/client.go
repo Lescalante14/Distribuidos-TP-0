@@ -17,10 +17,11 @@ var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
-	ID             string
-	ServerAddress  string
-	LoopAmount     int
-	LoopPeriod     time.Duration
+	ID            string
+	ServerAddress string
+	LoopAmount    int
+	LoopPeriod    time.Duration
+	// deprecated
 	BatchMaxAmount int
 }
 
@@ -155,7 +156,7 @@ func (c *Client) StartClientLoop() {
 	log.Infof("action: start_processing | result: success | client_id: %v | batch_size: %v", c.config.ID, c.config.BatchMaxAmount)
 
 	// Process bets in chunks
-	for batchNum <= c.config.LoopAmount && !c.endGracefully {
+	for !c.endGracefully {
 		// Check for shutdown signal before each iteration
 		c.handleShutdown()
 		if c.endGracefully {
