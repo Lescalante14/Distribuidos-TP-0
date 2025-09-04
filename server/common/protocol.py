@@ -1,5 +1,7 @@
 import logging
 
+from common.utils import Bet
+
 # Protocol constants
 FIELD_SEPARATOR = 0x00    # Null byte separator between fields
 BET_SEPARATOR = 0xFF      # Separator between different bets
@@ -7,15 +9,10 @@ PAYLOAD_LENGTH_BYTES = 4  # 4 bytes for the length of the message
 MAX_MESSAGE_SIZE = 1024 * 1024 * 2 # 2MB
 RESPONSE_HEADER_SIZE = 2 # 2 bytes for the success flag and separator
 
-class BetData:
-    """Represents a lottery bet in binary format"""
-    
-    def __init__(self, nombre="", apellido="", dni="", nacimiento="", numero=""):
-        self.nombre = nombre
-        self.apellido = apellido
-        self.dni = dni
-        self.nacimiento = nacimiento
-        self.numero = numero
+# Message types
+MESSAGE_TYPE_BET_BATCH = 0x01
+MESSAGE_TYPE_FINISH_NOTIFY = 0x02
+MESSAGE_TYPE_WINNERS_QUERY = 0x03
 
 
 class Response:
@@ -24,6 +21,30 @@ class Response:
     def __init__(self, success=False, message=""):
         self.success = success
         self.message = message
+
+
+class FinishNotification:
+    """Represents a notification that a client has finished sending all bets"""
+    
+    def __init__(self, agency_id=""):
+        self.agency_id = agency_id
+
+
+class WinnersQuery:
+    """Represents a query for winners of a specific agency"""
+    
+    def __init__(self, agency_id=""):
+        self.agency_id = agency_id
+
+
+class WinnersResponse:
+    """Represents the response with winners for a specific agency"""
+    
+    def __init__(self, success=False, message="", winners=None, count=0):
+        self.success = success
+        self.message = message
+        self.winners = winners if winners else []
+        self.count = count
 
 
 class Protocol:
@@ -56,51 +77,58 @@ class Protocol:
         return bytes(buf)
     
     def deserialize_bet(self, data):
-        """Convert binary data to BetData"""
+        """Convert binary data to Bet"""
         if len(data) < 1: # At least 1 byte for the first field
             raise ValueError("data too short")
         
-        bet = BetData()
         offset = 0
+
+        # Read agency
+        agency_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if agency_end == -1:
+            raise ValueError("invalid agency field")
+        agency = data[offset:agency_end].decode('utf-8')
+        offset = agency_end + 1
         
         # Read nombre
         nombre_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if nombre_end == -1:
             raise ValueError("invalid nombre field")
-        bet.nombre = data[offset:nombre_end].decode('utf-8')
+        nombre = data[offset:nombre_end].decode('utf-8')
         offset = nombre_end + 1
         
         # Read apellido
         apellido_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if apellido_end == -1:
             raise ValueError("invalid apellido field")
-        bet.apellido = data[offset:apellido_end].decode('utf-8')
+        apellido = data[offset:apellido_end].decode('utf-8')
         offset = apellido_end + 1
         
         # Read dni
         dni_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if dni_end == -1:
             raise ValueError("invalid dni field")
-        bet.dni = data[offset:dni_end].decode('utf-8')
+        dni = data[offset:dni_end].decode('utf-8')
         offset = dni_end + 1
         
         # Read nacimiento
         nacimiento_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if nacimiento_end == -1:
             raise ValueError("invalid nacimiento field")
-        bet.nacimiento = data[offset:nacimiento_end].decode('utf-8')
+        nacimiento = data[offset:nacimiento_end].decode('utf-8')
         offset = nacimiento_end + 1
         
         # Read numero (last field, no separator)
-        bet.numero = data[offset:].decode('utf-8')
+        numero = data[offset:].decode('utf-8')
+        bet = Bet(agency, nombre, apellido, dni, nacimiento, numero)
         
         return bet
     
     def deserialize_batch(self, data):
-        """Convert binary data to a list of BetData"""
+        """Convert binary data to a list of Bet"""
         bets = []
         offset = 0
-        
+
         while offset < len(data):
             # Find the end of the current bet (next bet separator)
             bet_end = self._find_next_generic_separator(data, offset, BET_SEPARATOR)
@@ -124,6 +152,36 @@ class Protocol:
         
         return bets
     
+    def deserialize_finish_notification(self, data):
+        """Convert binary data to FinishNotification"""
+        if len(data) < 1:
+            raise ValueError("data too short")
+        
+        # Find the separator
+        separator_pos = self._find_next_generic_separator(data, 0, FIELD_SEPARATOR)
+        if separator_pos == -1:
+            raise ValueError("invalid finish notification format")
+        
+        # Extract agency_id
+        agency_id = data[:separator_pos].decode('utf-8')
+        
+        return FinishNotification(agency_id)
+    
+    def deserialize_winners_query(self, data):
+        """Convert binary data to WinnersQuery"""
+        if len(data) < 1:
+            raise ValueError("data too short")
+        
+        # Find the separator
+        separator_pos = self._find_next_generic_separator(data, 0, FIELD_SEPARATOR)
+        if separator_pos == -1:
+            raise ValueError("invalid winners query format")
+        
+        # Extract agency_id
+        agency_id = data[:separator_pos].decode('utf-8')
+        
+        return WinnersQuery(agency_id)
+    
     def _find_next_generic_separator(self, data, offset, separator):
         """Find the next generic separator starting from offset"""
         for i in range(offset, len(data)):
@@ -145,6 +203,24 @@ class Protocol:
         # Send data
         sock.sendall(data) #sendall is guaranteed to send the entire message
     
+    def send_message_with_type(self, sock, message_type, data):
+        """Send a message with type header using the protocol: type + length + data"""
+        length = len(data)
+
+        if length < 0 or length > MAX_MESSAGE_SIZE:
+            return None
+        
+        # Send message type (1 byte)
+        type_bytes = bytes([message_type])
+        sock.sendall(type_bytes)
+        
+        # Send length (4 bytes, big endian)
+        length_bytes = self._int_to_bytes(length)
+        sock.sendall(length_bytes)
+        
+        # Send data
+        sock.sendall(data)
+    
     def receive_message(self, sock):
         """Receive a message using the protocol: length + data"""
         
@@ -165,6 +241,33 @@ class Protocol:
         
         return message_data
     
+    def receive_message_with_type(self, sock):
+        """Receive a message with type header using the protocol: type + length + data"""
+        
+        # Receive message type (1 byte)
+        type_data = self._recv_exact(sock, 1)
+        if type_data is None:
+            return None, None
+        
+        message_type = type_data[0]
+        
+        # Receive length (4 bytes)
+        length_data = self._recv_exact(sock, PAYLOAD_LENGTH_BYTES)
+        if length_data is None:
+            return None, None
+        
+        length = self._bytes_to_int(length_data)
+
+        if length < 0 or length > MAX_MESSAGE_SIZE:
+            return None, None
+        
+        # Receive message data
+        message_data = self._recv_exact(sock, length)
+        if message_data is None:
+            return None, None
+        
+        return message_type, message_data
+    
     def serialize_response(self, resp):
         """Convert Response to binary format"""
         # Response format: [success][separator][message]
@@ -184,5 +287,46 @@ class Protocol:
         
         # Write message
         buffer[offset:offset + len(message_bytes)] = message_bytes
+        
+        return bytes(buffer)
+    
+    def serialize_winners_response(self, resp):
+        """Convert WinnersResponse to binary format"""
+        # Response format: [success][separator][count][separator][winner1][separator][winner2]...
+        count_str = str(resp.count)
+        count_bytes = count_str.encode('utf-8')
+        
+        # Build winners string
+        winners_str = ""
+        for winner in resp.winners:
+            if winners_str:
+                winners_str += chr(FIELD_SEPARATOR)
+            winners_str += winner
+        
+        winners_bytes = winners_str.encode('utf-8')
+        
+        total_size = RESPONSE_HEADER_SIZE + len(count_bytes) + 1 + len(winners_bytes)
+        
+        buffer = bytearray(total_size)
+        offset = 0
+        
+        # Write success flag
+        buffer[offset] = 0x01 if resp.success else 0x00
+        offset += 1
+        
+        # Write separator
+        buffer[offset] = FIELD_SEPARATOR
+        offset += 1
+        
+        # Write count
+        buffer[offset:offset + len(count_bytes)] = count_bytes
+        offset += len(count_bytes)
+        
+        # Write separator
+        buffer[offset] = FIELD_SEPARATOR
+        offset += 1
+        
+        # Write winners
+        buffer[offset:offset + len(winners_bytes)] = winners_bytes
         
         return bytes(buffer)

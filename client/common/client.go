@@ -27,12 +27,15 @@ type ClientConfig struct {
 
 // BetData represents a lottery bet
 type BetData struct {
+	Agency     string
 	Nombre     string
 	Apellido   string
 	DNI        string
 	Nacimiento string
 	Numero     string
 }
+
+const BET_DATA_FIELDS_COUNT = 6
 
 // Client Entity that encapsulates how
 type Client struct {
@@ -52,6 +55,7 @@ func NewClient(config ClientConfig) *Client {
 		config:       config,
 		shutdownChan: make(chan os.Signal, 1),
 		betData: BetData{
+			Agency:     os.Getenv("CLI_ID"),
 			Nombre:     os.Getenv("NOMBRE"),
 			Apellido:   os.Getenv("APELLIDO"),
 			DNI:        os.Getenv("DOCUMENTO"),
@@ -110,7 +114,6 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData 
 	for linesRead < chunkSize && scanner.Scan() {
 
 		line := scanner.Text()
-		linesRead++ // Always increment for every line read
 
 		if line == "" {
 			continue
@@ -118,12 +121,13 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData 
 
 		// Parse CSV line manually since the format is simple
 		fields := strings.Split(line, ",")
-		if len(fields) != 5 {
+		if len(fields) != BET_DATA_FIELDS_COUNT-1 { // -1 because the first field is the agency
 			log.Warningf("action: parse_csv_line | result: fail | line: %s | reason: invalid field count", line)
 			continue
 		}
 
 		bet := BetData{
+			Agency:     c.config.ID,
 			Nombre:     strings.TrimSpace(fields[0]),
 			Apellido:   strings.TrimSpace(fields[1]),
 			DNI:        strings.TrimSpace(fields[2]),
@@ -131,6 +135,7 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData 
 			Numero:     strings.TrimSpace(fields[4]),
 		}
 		bets = append(bets, bet)
+		linesRead++
 	}
 
 	return bets
@@ -178,7 +183,9 @@ func (c *Client) StartClientLoop() {
 		}
 
 		// Create the connection to the server
+		log.Infof("action: connect | result: in_progress | client_id: %v", c.config.ID)
 		err = c.createClientSocket()
+		log.Infof("action: connect | result: success | client_id: %v", c.config.ID)
 		if err != nil {
 			log.Errorf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			continue
@@ -193,7 +200,7 @@ func (c *Client) StartClientLoop() {
 		}
 
 		// Send batch data
-		err = c.protocol.SendMessage(c.conn, batchBytes)
+		err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_BET_BATCH, batchBytes)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 			c.conn.Close()
@@ -201,7 +208,7 @@ func (c *Client) StartClientLoop() {
 		}
 
 		// Receive response
-		responseBytes, err := c.protocol.ReceiveMessage(c.conn)
+		responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
 		c.conn.Close()
 
 		if err != nil {
@@ -209,6 +216,12 @@ func (c *Client) StartClientLoop() {
 				c.config.ID,
 				err,
 			)
+			continue
+		}
+
+		// Validate response type (should be the same as the message type we sent)
+		if responseType != MESSAGE_TYPE_BET_BATCH {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: unexpected response type %v", c.config.ID, responseType)
 			continue
 		}
 
@@ -257,4 +270,159 @@ func (c *Client) StartClientLoop() {
 	} else {
 		log.Infof("action: loop_finished | result: success | client_id: %v | total_bets_processed: %v", c.config.ID, totalBetsProcessed)
 	}
+
+	// Phase 2: Send finish notification and query winners
+	if !c.endGracefully {
+		c.sendFinishNotificationAndQueryWinners()
+	}
+	log.Infof("action: exit | result: success | client_id: %v", c.config.ID)
+}
+
+// sendFinishNotificationAndQueryWinners sends finish notification and queries winners
+func (c *Client) sendFinishNotificationAndQueryWinners() {
+	// Step 1: Send finish notification
+	err := c.sendFinishNotification()
+	if err != nil {
+		log.Errorf("action: finish_notification | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	// Step 2: Query winners immediately after
+	err = c.queryWinners()
+	if err != nil {
+		log.Errorf("action: query_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+}
+
+// sendFinishNotification sends a notification that this client has finished sending all bets
+func (c *Client) sendFinishNotification() error {
+	// Create connection
+	err := c.createClientSocket()
+	if err != nil {
+		return err
+	}
+	defer c.conn.Close()
+
+	// Create finish notification
+	notification := &FinishNotification{
+		AgencyID: c.config.ID,
+	}
+
+	// Serialize notification
+	notificationBytes, err := c.protocol.SerializeFinishNotification(notification)
+	if err != nil {
+		return err
+	}
+
+	// Send notification with type
+	err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_FINISH_NOTIFY, notificationBytes)
+	if err != nil {
+		return err
+	}
+
+	// Receive response
+	responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
+	if err != nil {
+		return err
+	}
+
+	// Validate response type (should be the same as the message type we sent)
+	if responseType != MESSAGE_TYPE_FINISH_NOTIFY {
+		log.Errorf("action: receive_message | result: fail | client_id: %v | error: unexpected response type %v", c.config.ID, responseType)
+		return fmt.Errorf("unexpected response type %v", responseType)
+	}
+
+	// Parse response
+	response, err := c.protocol.DeserializeResponse(responseBytes)
+	if err != nil {
+		return err
+	}
+
+	if response.Success {
+		log.Infof("action: finish_notification | result: success | client_id: %v", c.config.ID)
+	} else {
+		log.Errorf("action: finish_notification | result: fail | client_id: %v | message: %v", c.config.ID, response.Message)
+	}
+
+	return nil
+}
+
+// queryWinners queries the winners for this agency using polling
+func (c *Client) queryWinners() error {
+	maxRetries := 10
+	retryDelay := time.Second * 2
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Infof("action: query_winners | result: in_progress | client_id: %v | attempt: %v/%v", c.config.ID, attempt, maxRetries)
+
+		// Create connection
+		err := c.createClientSocket()
+		if err != nil {
+			log.Errorf("action: connect | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Create winners query
+		query := &WinnersQuery{
+			AgencyID: c.config.ID,
+		}
+
+		// Serialize query
+		queryBytes, err := c.protocol.SerializeWinnersQuery(query)
+		if err != nil {
+			c.conn.Close()
+			log.Errorf("action: serialize_query | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Send query with type
+		err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_WINNERS_QUERY, queryBytes)
+		if err != nil {
+			c.conn.Close()
+			log.Errorf("action: send_query | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Receive response
+		responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
+		c.conn.Close()
+
+		if err != nil {
+			log.Errorf("action: receive_response | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Validate response type
+		if responseType != MESSAGE_TYPE_WINNERS_QUERY {
+			log.Errorf("action: receive_response | result: fail | client_id: %v | attempt: %v | error: unexpected response type %v", c.config.ID, attempt, responseType)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Parse winners response
+		winnersResponse, err := c.protocol.DeserializeWinnersResponse(responseBytes)
+		if err != nil {
+			log.Errorf("action: parse_response | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		if winnersResponse.Success {
+			log.Infof("action: consulta_ganadores | result: success | client_id: %v | cant_ganadores: %v", c.config.ID, winnersResponse.Count)
+			return nil // Success, exit polling loop
+		} else {
+			log.Infof("action: consulta_ganadores_waiting | result: success | client_id: %v | attempt: %v | message: %v", c.config.ID, attempt, winnersResponse.Message)
+			if attempt < maxRetries {
+				time.Sleep(retryDelay)
+			}
+		}
+	}
+
+	log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: max retries exceeded", c.config.ID)
+	return fmt.Errorf("max retries exceeded for winners query")
 }

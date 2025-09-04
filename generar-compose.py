@@ -17,16 +17,17 @@ def validate_args(args):
 
 def write_services(f, clients_count):
     f.write("services:\n")
-    write_server(f)
+    write_server(f, clients_count)
     write_clients(f, clients_count)
 
-def write_server(f):
+def write_server(f, clients_count):
     f.write("  server:\n")
     f.write("    container_name: server\n")
     f.write("    image: server:latest\n")
     f.write("    entrypoint: python3 /main.py\n")
     f.write("    environment:\n")
     f.write("      - PYTHONUNBUFFERED=1\n")
+    f.write(f"      - CLIENTS_COUNT={clients_count}\n")
     f.write("    networks:\n")
     f.write("      - testing_net\n")
     f.write("    volumes:\n")
