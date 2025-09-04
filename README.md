@@ -202,27 +202,25 @@ El protocolo implementado para el sistema de Lotería Nacional utiliza un format
 
 **Estructura de Apuesta (Binario):**
 ```
-[endianness_marker][nombre][separator][apellido][separator][dni][separator][nacimiento][separator][numero]
+[nombre][separator][apellido][separator][dni][separator][nacimiento][separator][numero]
 ```
 
 Donde:
-- **endianness_marker**: 1 byte (0x01) para indicar big-endian
 - **separator**: 1 byte (0x00) para separar campos
 - **campos**: Strings UTF-8 codificados
 - **Nota**: No hay separador final después del último campo (numero)
 
 **Ejemplo de estructura:**
 ```
-0x01 "Santiago Lionel" 0x00 "Lorca" 0x00 "30904465" 0x00 "1999-03-17" 0x00 "7574"
+"Santiago Lionel" 0x00 "Lorca" 0x00 "30904465" 0x00 "1999-03-17" 0x00 "7574"
 ```
 
 **Respuesta del Servidor (Binario):**
 ```
-[endianness_marker][success_flag][separator][message]
+[success_flag][separator][message]
 ```
 
 Donde:
-- **endianness_marker**: 1 byte (0x01)
 - **success_flag**: 1 byte (0x01 para éxito, 0x00 para error)
 - **separator**: 1 byte (0x00)
 - **message**: String UTF-8 con descripción
@@ -234,20 +232,20 @@ Donde:
 - Método `SerializeBet()` convierte `BetDataBinary` a formato binario
 - Método `DeserializeResponse()` convierte respuesta binaria a `Response`
 - Utiliza `encoding/binary` para manejo de longitud en big-endian
-- Manejo robusto de errores con validación de endianness marker
+- Manejo robusto de errores con validación de formato
 
 **Servidor (Python) - `server/common/protocol.py`:**
 - Clase `Protocol` encapsula toda la lógica del protocolo
 - Método `serialize_bet()` convierte `BetData` a formato binario
 - Método `deserialize_response()` convierte respuesta binaria a `Response`
 - **Sin uso de struct library**: Implementación manual con `_int_to_bytes()` y `_bytes_to_int()`
-- Validación completa de formato y endianness
+- Validación completa de formato
 
 #### Ventajas del Protocolo Binario
 
 1. **Eficiencia**: Menor overhead que JSON, especialmente para datos simples
 2. **Evita Short Read/Write**: Protocolo length-prefixed garantiza recepción completa
-3. **Endianness Awareness**: Cross-architecture compatibility
+3. **Big Endian Standard**: Usa el estándar de red (Network Byte Order)
 4. **Compact Format**: Smaller message sizes
 5. **Type Safety**: Binary format is less prone to parsing errors
 6. **Performance**: Faster serialization/deserialization
@@ -284,7 +282,7 @@ server/common/
 
 - **Sin Separador Final**: El último campo (numero) no tiene separador al final
 - **Length-Prefixed**: Cada mensaje incluye su longitud al inicio para evitar short read/write
-- **Endianness Marker**: Permite compatibilidad entre diferentes arquitecturas
+- **Big Endian Standard**: Usa el estándar de red para compatibilidad cross-architecture
 - **Sin Dependencias Externas**: No utiliza librerías como struct en Python
 - **Separación de Responsabilidades**: Protocolo completamente encapsulado en clases separadas
 

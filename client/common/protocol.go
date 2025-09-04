@@ -8,11 +8,10 @@ import (
 
 const (
 	// Protocol constants
-	ENDIANNESS_MARKER    = 0x01            // Big endian marker
 	FIELD_SEPARATOR      = 0x00            // Null byte separator
 	MAX_MESSAGE_SIZE     = 1024 * 1024 * 2 // 2MB
 	PAYLOAD_LENGTH_BYTES = 4               // 4 bytes for the length of the message
-	RESPONSE_HEADER_SIZE = 3               // 3 bytes for the endianness marker, success flag, and separator
+	RESPONSE_HEADER_SIZE = 2               // 2 bytes for the success flag and separator
 )
 
 // BetDataBinary represents a lottery bet in binary format
@@ -47,8 +46,7 @@ func writeAll(w io.Writer, b []byte) error {
 func (p *Protocol) SerializeBet(bet *BetDataBinary) ([]byte, error) {
 	log.Debugf("action: serialize_bet | result: in_progress | bet: %v", bet)
 	// Calculate total size
-	totalSize := 1                       // endianness marker
-	totalSize += len(bet.Nombre) + 1     // nombre + separator
+	totalSize := len(bet.Nombre) + 1     // nombre + separator
 	totalSize += len(bet.Apellido) + 1   // apellido + separator
 	totalSize += len(bet.DNI) + 1        // dni + separator
 	totalSize += len(bet.Nacimiento) + 1 // nacimiento + separator
@@ -58,10 +56,6 @@ func (p *Protocol) SerializeBet(bet *BetDataBinary) ([]byte, error) {
 	// Create buffer
 	buffer := make([]byte, totalSize)
 	offset := 0
-
-	// Write endianness marker
-	buffer[offset] = ENDIANNESS_MARKER
-	offset++
 
 	// Write nombre
 	copy(buffer[offset:], []byte(bet.Nombre))
@@ -145,27 +139,22 @@ type Response struct {
 
 // DeserializeResponse converts binary data to Response
 func (p *Protocol) DeserializeResponse(data []byte) (*Response, error) {
-	if len(data) < RESPONSE_HEADER_SIZE { // 3 bytes for the endianness marker, success flag, and separator
+	if len(data) < RESPONSE_HEADER_SIZE {
 		return nil, errors.New("response data too short")
-	}
-
-	// Check endianness marker
-	if data[0] != ENDIANNESS_MARKER {
-		return nil, errors.New("invalid endianness marker")
 	}
 
 	resp := &Response{}
 
 	// Read success flag
-	resp.Success = data[1] == 0x01 // 0x01 for success, 0x00 for failure
+	resp.Success = data[0] == 0x01 // 0x01 for success, 0x00 for failure
 
 	// Skip separator
-	if data[2] != FIELD_SEPARATOR {
+	if data[1] != FIELD_SEPARATOR {
 		return nil, errors.New("invalid response format")
 	}
 
 	// Read message (rest of the data)
-	resp.Message = string(data[3:])
+	resp.Message = string(data[2:])
 
 	return resp, nil
 }
