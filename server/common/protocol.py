@@ -11,12 +11,6 @@ RESPONSE_HEADER_SIZE = 2 # 2 bytes for the success flag and separator
 MESSAGE_TYPE_BET_BATCH = 0x01
 MESSAGE_TYPE_FINISH_NOTIFY = 0x02
 MESSAGE_TYPE_WINNERS_QUERY = 0x03
-MESSAGE_TYPE_LOTTERY_COMPLETED = 0x04  # New message type for lottery completion notification
-
-# Response types (same as message types for now) TODO: Remove this
-RESPONSE_TYPE_BET_BATCH = 0x01
-RESPONSE_TYPE_FINISH_NOTIFY = 0x02
-RESPONSE_TYPE_WINNERS_QUERY = 0x03
 
 class BetData:
     """Represents a lottery bet in binary format"""
@@ -49,13 +43,6 @@ class WinnersQuery:
     
     def __init__(self, agency_id=""):
         self.agency_id = agency_id
-
-
-class LotteryCompletedNotification:
-    """Represents a notification that the lottery has been completed"""
-    
-    def __init__(self, winners_count=0):
-        self.winners_count = winners_count
 
 
 class WinnersResponse:
@@ -195,41 +182,6 @@ class Protocol:
         agency_id = data[:separator_pos].decode('utf-8')
         
         return WinnersQuery(agency_id)
-    
-    def serialize_lottery_completed_notification(self, notification):
-        """Convert LotteryCompletedNotification to binary format"""
-        # Calculate total size: winners_count + separator
-        count_str = str(notification.winners_count)
-        count_bytes = count_str.encode('utf-8')
-        total_size = len(count_bytes) + 1
-        
-        buffer = bytearray(total_size)
-        offset = 0
-        
-        # Write winners count
-        buffer[offset:offset + len(count_bytes)] = count_bytes
-        offset += len(count_bytes)
-        
-        # Write separator
-        buffer[offset] = FIELD_SEPARATOR
-        
-        return bytes(buffer)
-    
-    def deserialize_lottery_completed_notification(self, data):
-        """Convert binary data to LotteryCompletedNotification"""
-        if len(data) < 1:
-            raise ValueError("data too short")
-        
-        # Find the separator
-        separator_pos = self._find_next_generic_separator(data, 0, FIELD_SEPARATOR)
-        if separator_pos == -1:
-            raise ValueError("invalid lottery completed notification format")
-        
-        # Extract winners count
-        count_str = data[:separator_pos].decode('utf-8')
-        winners_count = int(count_str)
-        
-        return LotteryCompletedNotification(winners_count)
     
     def _find_next_generic_separator(self, data, offset, separator):
         """Find the next generic separator starting from offset"""

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 )
 
 const (
@@ -17,15 +16,9 @@ const (
 	RESPONSE_HEADER_SIZE = 2               // 2 bytes for the success flag and separator
 
 	// Message types
-	MESSAGE_TYPE_BET_BATCH         = 0x01
-	MESSAGE_TYPE_FINISH_NOTIFY     = 0x02
-	MESSAGE_TYPE_WINNERS_QUERY     = 0x03
-	MESSAGE_TYPE_LOTTERY_COMPLETED = 0x04 // New message type for lottery completion notification
-
-	// Response types (same as message types for now)
-	RESPONSE_TYPE_BET_BATCH     = 0x01
-	RESPONSE_TYPE_FINISH_NOTIFY = 0x02
-	RESPONSE_TYPE_WINNERS_QUERY = 0x03
+	MESSAGE_TYPE_BET_BATCH     = 0x01
+	MESSAGE_TYPE_FINISH_NOTIFY = 0x02
+	MESSAGE_TYPE_WINNERS_QUERY = 0x03
 )
 
 // Protocol handles binary communication protocol
@@ -52,11 +45,6 @@ type WinnersResponse struct {
 	Message string
 	Winners []string // DNIs of winners
 	Count   int
-}
-
-// LotteryCompletedNotification represents a notification that the lottery has been completed
-type LotteryCompletedNotification struct {
-	WinnersCount int
 }
 
 func writeAll(w io.Writer, b []byte) error {
@@ -324,35 +312,6 @@ func (p *Protocol) DeserializeWinnersResponse(data []byte) (*WinnersResponse, er
 	resp.Message = fmt.Sprintf("Found %d winners", resp.Count)
 
 	return resp, nil
-}
-
-// DeserializeLotteryCompletedNotification converts binary data to LotteryCompletedNotification
-func (p *Protocol) DeserializeLotteryCompletedNotification(data []byte) (*LotteryCompletedNotification, error) {
-	if len(data) < 1 {
-		return nil, errors.New("notification data too short")
-	}
-
-	// Find the separator
-	separatorPos := -1
-	for i, b := range data {
-		if b == FIELD_SEPARATOR {
-			separatorPos = i
-			break
-		}
-	}
-
-	if separatorPos == -1 {
-		return nil, errors.New("invalid lottery completed notification format")
-	}
-
-	// Extract winners count
-	countStr := string(data[:separatorPos])
-	count, err := strconv.Atoi(countStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid winners count: %v", err)
-	}
-
-	return &LotteryCompletedNotification{WinnersCount: count}, nil
 }
 
 // SendMessageWithType sends a message with type header using the protocol: type + length + data
