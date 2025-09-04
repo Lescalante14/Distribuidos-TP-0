@@ -40,11 +40,10 @@ class WinnersQuery:
 class WinnersResponse:
     """Represents the response with winners for a specific agency"""
     
-    def __init__(self, success=False, message="", winners=None, count=0):
+    def __init__(self, success=False, message="", winners=None):
         self.success = success
         self.message = message
         self.winners = winners if winners else []
-        self.count = count
 
 
 class Protocol:
@@ -157,13 +156,8 @@ class Protocol:
         if len(data) < 1:
             raise ValueError("data too short")
         
-        # Find the separator
-        separator_pos = self._find_next_generic_separator(data, 0, FIELD_SEPARATOR)
-        if separator_pos == -1:
-            raise ValueError("invalid finish notification format")
-        
-        # Extract agency_id
-        agency_id = data[:separator_pos].decode('utf-8')
+        # Extract agency_id (no separator expected)
+        agency_id = data.decode('utf-8')
         
         return FinishNotification(agency_id)
     
@@ -172,13 +166,8 @@ class Protocol:
         if len(data) < 1:
             raise ValueError("data too short")
         
-        # Find the separator
-        separator_pos = self._find_next_generic_separator(data, 0, FIELD_SEPARATOR)
-        if separator_pos == -1:
-            raise ValueError("invalid winners query format")
-        
-        # Extract agency_id
-        agency_id = data[:separator_pos].decode('utf-8')
+        # Extract agency_id (no separator expected)
+        agency_id = data.decode('utf-8')
         
         return WinnersQuery(agency_id)
     
@@ -292,9 +281,7 @@ class Protocol:
     
     def serialize_winners_response(self, resp):
         """Convert WinnersResponse to binary format"""
-        # Response format: [success][separator][count][separator][winner1][separator][winner2]...
-        count_str = str(resp.count)
-        count_bytes = count_str.encode('utf-8')
+        # Response format: [success][separator][winner1][separator][winner2]...
         
         # Build winners string
         winners_str = ""
@@ -305,7 +292,7 @@ class Protocol:
         
         winners_bytes = winners_str.encode('utf-8')
         
-        total_size = RESPONSE_HEADER_SIZE + len(count_bytes) + 1 + len(winners_bytes)
+        total_size = RESPONSE_HEADER_SIZE + len(winners_bytes)
         
         buffer = bytearray(total_size)
         offset = 0
@@ -313,14 +300,6 @@ class Protocol:
         # Write success flag
         buffer[offset] = 0x01 if resp.success else 0x00
         offset += 1
-        
-        # Write separator
-        buffer[offset] = FIELD_SEPARATOR
-        offset += 1
-        
-        # Write count
-        buffer[offset:offset + len(count_bytes)] = count_bytes
-        offset += len(count_bytes)
         
         # Write separator
         buffer[offset] = FIELD_SEPARATOR

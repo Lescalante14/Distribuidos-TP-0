@@ -231,7 +231,6 @@ class Server:
             success=True, 
             message=f"Found {len(winners)} winners", 
             winners=winners, 
-            count=len(winners)
         )
         
         # Send response with type
