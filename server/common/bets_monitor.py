@@ -18,8 +18,8 @@ class BetsMonitor:
 
     def load_bets(self):
         with self.lock:
-            return load_bets()
-        
+            return list(load_bets())
+
     def has_won(self, bet):
         # has_won util doesn't access to shared resources
         return has_won(bet)
