@@ -6,7 +6,6 @@ services:
     entrypoint: python3 /main.py
     environment:
       - PYTHONUNBUFFERED=1
-      - LOGGING_LEVEL=DEBUG
     networks:
       - testing_net
     volumes:
@@ -17,13 +16,18 @@ services:
     entrypoint: /client
     environment:
       - CLI_ID=1
-      - CLI_LOG_LEVEL=DEBUG
+      - NOMBRE=Luis agencia 1
+      - APELLIDO=Escalante
+      - DOCUMENTO=111111
+      - NACIMIENTO=1999-03-17
+      - NUMERO=1
     networks:
       - testing_net
     depends_on:
       - server
     volumes:
       - ./client/config.yaml:/config.yaml
+      - ./.data/agency-1.csv:/data/agency-1.csv
 networks:
   testing_net:
     ipam:

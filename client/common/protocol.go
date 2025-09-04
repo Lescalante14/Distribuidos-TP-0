@@ -89,6 +89,69 @@ func (p *Protocol) SerializeBet(bet *BetDataBinary) ([]byte, error) {
 	return buffer, nil
 }
 
+// SerializeBatch converts a slice of BetData to binary format
+func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
+	log.Debugf("action: serialize_batch | result: in_progress | bets_count: %v", len(bets))
+
+	// Calculate total size for all bets
+	totalSize := 0
+	for _, bet := range bets {
+		// Each bet: endianness marker + fields + separators
+		betSize := 1                       // endianness marker
+		betSize += len(bet.Nombre) + 1     // nombre + separator
+		betSize += len(bet.Apellido) + 1   // apellido + separator
+		betSize += len(bet.DNI) + 1        // dni + separator
+		betSize += len(bet.Nacimiento) + 1 // nacimiento + separator
+		betSize += len(bet.Numero)         // numero (no final separator)
+		totalSize += betSize
+	}
+
+	log.Debugf("action: serialize_batch | result: in_progress | totalSize: %v", totalSize)
+
+	// Create buffer
+	buffer := make([]byte, totalSize)
+	offset := 0
+
+	// Serialize each bet
+	for _, bet := range bets {
+		// Write endianness marker
+		buffer[offset] = ENDIANNESS_MARKER
+		offset++
+
+		// Write nombre
+		copy(buffer[offset:], []byte(bet.Nombre))
+		offset += len(bet.Nombre)
+		buffer[offset] = FIELD_SEPARATOR
+		offset++
+
+		// Write apellido
+		copy(buffer[offset:], []byte(bet.Apellido))
+		offset += len(bet.Apellido)
+		buffer[offset] = FIELD_SEPARATOR
+		offset++
+
+		// Write dni
+		copy(buffer[offset:], []byte(bet.DNI))
+		offset += len(bet.DNI)
+		buffer[offset] = FIELD_SEPARATOR
+		offset++
+
+		// Write nacimiento
+		copy(buffer[offset:], []byte(bet.Nacimiento))
+		offset += len(bet.Nacimiento)
+		buffer[offset] = FIELD_SEPARATOR
+		offset++
+
+		// Write numero (no final separator)
+		copy(buffer[offset:], []byte(bet.Numero))
+		offset += len(bet.Numero)
+	}
+
+	log.Debugf("action: serialize_batch | result: success | buffer_size: %v", len(buffer))
+
+	return buffer, nil
+}
+
 // SendMessage sends a message using the protocol: length + data
 func (p *Protocol) SendMessage(writer io.Writer, data []byte) error {
 	length := uint32(len(data))
