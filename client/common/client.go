@@ -21,6 +21,7 @@ type ClientConfig struct {
 	ServerAddress  string
 	LoopAmount     int
 	LoopPeriod     time.Duration
+	Timeout        time.Duration
 	BatchMaxAmount int
 }
 
@@ -78,6 +79,10 @@ func (c *Client) createClientSocket() error {
 			c.config.ID,
 			err,
 		)
+	}
+	// Set timeout to close if deadlocked
+	if c.config.Timeout > 0 {
+		conn.SetDeadline(time.Now().Add(c.config.Timeout))
 	}
 	c.conn = conn
 	return nil
@@ -159,6 +164,16 @@ func (c *Client) StartClientLoop() {
 
 	log.Infof("action: start_processing | result: success | client_id: %v | batch_size: %v", c.config.ID, c.config.BatchMaxAmount)
 
+	// Create the connection to the server once and keep it open
+	log.Infof("action: connect | result: in_progress | client_id: %v", c.config.ID)
+	err = c.createClientSocket()
+	if err != nil {
+		log.Criticalf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+	defer c.conn.Close()
+	log.Infof("action: connect | result: success | client_id: %v", c.config.ID)
+
 	// Process bets in chunks
 	for batchNum <= c.config.LoopAmount && !c.endGracefully {
 		// Check for shutdown signal before each iteration
@@ -181,20 +196,10 @@ func (c *Client) StartClientLoop() {
 			break
 		}
 
-		// Create the connection to the server
-		log.Infof("action: connect | result: in_progress | client_id: %v", c.config.ID)
-		err = c.createClientSocket()
-		log.Infof("action: connect | result: success | client_id: %v", c.config.ID)
-		if err != nil {
-			log.Errorf("action: connect | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			continue
-		}
-
 		// Serialize batch of bets
 		batchBytes, err := c.protocol.SerializeBatch(batchBets)
 		if err != nil {
 			log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
 			continue
 		}
 
@@ -202,14 +207,11 @@ func (c *Client) StartClientLoop() {
 		err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_BET_BATCH, batchBytes)
 		if err != nil {
 			log.Errorf("action: send_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-			c.conn.Close()
 			continue
 		}
 
 		// Receive response
 		responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
-		c.conn.Close()
-
 		if err != nil {
 			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
 				c.config.ID,
@@ -270,14 +272,14 @@ func (c *Client) StartClientLoop() {
 		log.Infof("action: loop_finished | result: success | client_id: %v | total_bets_processed: %v", c.config.ID, totalBetsProcessed)
 	}
 
-	// Phase 2: Send finish notification and query winners
+	// Phase 2: Send finish notification and query winners using the same connection
 	if !c.endGracefully {
 		c.sendFinishNotificationAndQueryWinners()
 	}
 	log.Infof("action: exit | result: success | client_id: %v", c.config.ID)
 }
 
-// sendFinishNotificationAndQueryWinners sends finish notification and queries winners
+// sendFinishNotificationAndQueryWinners sends finish notification and queries winners using the same connection
 func (c *Client) sendFinishNotificationAndQueryWinners() {
 	// Step 1: Send finish notification
 	err := c.sendFinishNotification()
@@ -296,13 +298,6 @@ func (c *Client) sendFinishNotificationAndQueryWinners() {
 
 // sendFinishNotification sends a notification that this client has finished sending all bets
 func (c *Client) sendFinishNotification() error {
-	// Create connection
-	err := c.createClientSocket()
-	if err != nil {
-		return err
-	}
-	defer c.conn.Close()
-
 	// Create finish notification
 	notification := &FinishNotification{
 		AgencyID: c.config.ID,
@@ -347,81 +342,54 @@ func (c *Client) sendFinishNotification() error {
 	return nil
 }
 
-// queryWinners queries the winners for this agency using polling
+// queryWinners queries the winners for this agency using the same connection
 func (c *Client) queryWinners() error {
-	maxRetries := 10
-	retryDelay := time.Second * 2
+	log.Infof("action: query_winners | result: in_progress | client_id: %v", c.config.ID)
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Infof("action: query_winners | result: in_progress | client_id: %v | attempt: %v/%v", c.config.ID, attempt, maxRetries)
-
-		// Create connection
-		err := c.createClientSocket()
-		if err != nil {
-			log.Errorf("action: connect | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Create winners query
-		query := &WinnersQuery{
-			AgencyID: c.config.ID,
-		}
-
-		// Serialize query
-		queryBytes, err := c.protocol.SerializeWinnersQuery(query)
-		if err != nil {
-			c.conn.Close()
-			log.Errorf("action: serialize_query | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Send query with type
-		err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_WINNERS_QUERY, queryBytes)
-		if err != nil {
-			c.conn.Close()
-			log.Errorf("action: send_query | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Receive response
-		responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
-		c.conn.Close()
-
-		if err != nil {
-			log.Errorf("action: receive_response | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Validate response type
-		if responseType != MESSAGE_TYPE_WINNERS_QUERY {
-			log.Errorf("action: receive_response | result: fail | client_id: %v | attempt: %v | error: unexpected response type %v", c.config.ID, attempt, responseType)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		// Parse winners response
-		winnersResponse, err := c.protocol.DeserializeWinnersResponse(responseBytes)
-		if err != nil {
-			log.Errorf("action: parse_response | result: fail | client_id: %v | attempt: %v | error: %v", c.config.ID, attempt, err)
-			time.Sleep(retryDelay)
-			continue
-		}
-
-		if winnersResponse.Success {
-			log.Infof("action: consulta_ganadores | result: success | client_id: %v | cant_ganadores: %v", c.config.ID, winnersResponse.Count)
-			return nil // Success, exit polling loop
-		} else {
-			log.Infof("action: consulta_ganadores_waiting | result: success | client_id: %v | attempt: %v | message: %v", c.config.ID, attempt, winnersResponse.Message)
-			if attempt < maxRetries {
-				time.Sleep(retryDelay)
-			}
-		}
+	// Create winners query
+	query := &WinnersQuery{
+		AgencyID: c.config.ID,
 	}
 
-	log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | error: max retries exceeded", c.config.ID)
-	return fmt.Errorf("max retries exceeded for winners query")
+	// Serialize query
+	queryBytes, err := c.protocol.SerializeWinnersQuery(query)
+	if err != nil {
+		log.Errorf("action: serialize_query | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+
+	// Send query with type
+	err = c.protocol.SendMessageWithType(c.conn, MESSAGE_TYPE_WINNERS_QUERY, queryBytes)
+	if err != nil {
+		log.Errorf("action: send_query | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+
+	// Receive response
+	responseType, responseBytes, err := c.protocol.ReceiveMessageWithType(c.conn)
+	if err != nil {
+		log.Errorf("action: receive_response | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+
+	// Validate response type
+	if responseType != MESSAGE_TYPE_WINNERS_QUERY {
+		log.Errorf("action: receive_response | result: fail | client_id: %v | error: unexpected response type %v", c.config.ID, responseType)
+		return fmt.Errorf("unexpected response type %v", responseType)
+	}
+
+	// Parse winners response
+	winnersResponse, err := c.protocol.DeserializeWinnersResponse(responseBytes)
+	if err != nil {
+		log.Errorf("action: parse_response | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+
+	if winnersResponse.Success {
+		log.Infof("action: consulta_ganadores | result: success | client_id: %v | cant_ganadores: %v", c.config.ID, winnersResponse.Count)
+		return nil
+	} else {
+		log.Errorf("action: consulta_ganadores | result: fail | client_id: %v | message: %v", c.config.ID, winnersResponse.Message)
+		return fmt.Errorf("winners query failed: %s", winnersResponse.Message)
+	}
 }

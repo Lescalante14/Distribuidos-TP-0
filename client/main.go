@@ -35,6 +35,7 @@ func InitConfig() (*viper.Viper, error) {
 	v.BindEnv("id")
 	v.BindEnv("server", "address")
 	v.BindEnv("loop", "period")
+	v.BindEnv("loop", "timeout")
 	v.BindEnv("loop", "amount")
 	v.BindEnv("log", "level")
 	v.BindEnv("batch", "maxAmount")
@@ -109,6 +110,7 @@ func main() {
 		ID:             v.GetString("id"),
 		LoopAmount:     v.GetInt("loop.amount"),
 		LoopPeriod:     v.GetDuration("loop.period"),
+		Timeout:        v.GetDuration("loop.timeout"),
 		BatchMaxAmount: v.GetInt("batch.maxAmount"),
 	}
 

@@ -3,6 +3,7 @@ server:
 loop:
   amount: 500
   period: "150ms"
+  timeout: "60s"
 log:
   level: "DEBUG"
 batch:
