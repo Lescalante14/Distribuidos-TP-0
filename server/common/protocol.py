@@ -1,11 +1,10 @@
 import logging
 
 # Protocol constants
-ENDIANNESS_MARKER = 0x01  # Big endian marker
 FIELD_SEPARATOR = 0x00    # Null byte separator
 PAYLOAD_LENGTH_BYTES = 4  # 4 bytes for the length of the message
 MAX_MESSAGE_SIZE = 1024 * 1024 * 2 # 2MB
-RESPONSE_HEADER_SIZE = 3 # 3 bytes for the endianness marker, success flag, and separator
+RESPONSE_HEADER_SIZE = 2 # 2 bytes for the success flag and separator
 
 class BetData:
     """Represents a lottery bet in binary format"""
@@ -57,47 +56,7 @@ class Protocol:
     
     def deserialize_bet(self, data):
         """Convert binary data to BetData"""
-        if len(data) < 2: # 2 bytes for the endianness marker and separator
-            raise ValueError("data too short")
-        
-        # Check endianness marker
-        if data[0] != ENDIANNESS_MARKER:
-            raise ValueError("invalid endianness marker")
-        
-        bet = BetData()
-        offset = 1  # Skip endianness marker
-        
-        # Read nombre
-        nombre_end = self._find_next_separator(data, offset)
-        if nombre_end == -1:
-            raise ValueError("invalid nombre field")
-        bet.nombre = data[offset:nombre_end].decode('utf-8')
-        offset = nombre_end + 1
-        
-        # Read apellido
-        apellido_end = self._find_next_separator(data, offset)
-        if apellido_end == -1:
-            raise ValueError("invalid apellido field")
-        bet.apellido = data[offset:apellido_end].decode('utf-8')
-        offset = apellido_end + 1
-        
-        # Read dni
-        dni_end = self._find_next_separator(data, offset)
-        if dni_end == -1:
-            raise ValueError("invalid dni field")
-        bet.dni = data[offset:dni_end].decode('utf-8')
-        offset = dni_end + 1
-        
-        # Read nacimiento
-        nacimiento_end = self._find_next_separator(data, offset)
-        if nacimiento_end == -1:
-            raise ValueError("invalid nacimiento field")
-        bet.nacimiento = data[offset:nacimiento_end].decode('utf-8')
-        offset = nacimiento_end + 1
-        
-        # Read numero (last field, no separator)
-        bet.numero = data[offset:].decode('utf-8')
-        
+        bet, _ = self._deserialize_bet_with_end(data, 0)
         return bet
     
     def deserialize_batch(self, data):
@@ -106,38 +65,67 @@ class Protocol:
         offset = 0
         
         while offset < len(data):
-            # Find the next bet starting from current offset
-            bet_end = self._find_next_bet_end(data, offset)
-            if bet_end == -1:
-                # No more bets found, use remaining data
-                bet_end = len(data)
-            
-            # Extract single bet data
-            bet_data = data[offset:bet_end]
-            if len(bet_data) > 0:
-                try:
-                    bet = self.deserialize_bet(bet_data)
-                    bets.append(bet)
-                except ValueError as e:
-                    # If we can't parse a bet, we'll return what we have so far
-                    # and let the caller handle the error
-                    break
-            
-            offset = bet_end
+            # Try to deserialize a single bet starting from current offset
+            try:
+                bet, bet_end = self._deserialize_bet_with_end(data, offset)
+                bets.append(bet)
+                offset = bet_end
+            except ValueError as e:
+                # If we can't parse a bet, we'll return what we have so far
+                # and let the caller handle the error
+                break
         
         return bets
     
-    def _find_next_bet_end(self, data, offset):
-        """Find the end of the next bet (start of next bet or end of data)"""
-        if offset >= len(data):
-            return -1
+    def _deserialize_bet_with_end(self, data, offset):
+        """Convert binary data to BetData and return the end position"""
+        if len(data) < offset + 1: # At least 1 byte for the first field
+            raise ValueError("data too short")
         
-        # Look for the next endianness marker
-        for i in range(offset + 1, len(data)):
-            if data[i] == ENDIANNESS_MARKER:
-                return i
+        bet = BetData()
+        current_offset = offset
         
-        return -1  # No next bet found
+        # Read nombre
+        nombre_end = self._find_next_separator(data, current_offset)
+        if nombre_end == -1:
+            raise ValueError("invalid nombre field")
+        bet.nombre = data[current_offset:nombre_end].decode('utf-8')
+        current_offset = nombre_end + 1
+        
+        # Read apellido
+        apellido_end = self._find_next_separator(data, current_offset)
+        if apellido_end == -1:
+            raise ValueError("invalid apellido field")
+        bet.apellido = data[current_offset:apellido_end].decode('utf-8')
+        current_offset = apellido_end + 1
+        
+        # Read dni
+        dni_end = self._find_next_separator(data, current_offset)
+        if dni_end == -1:
+            raise ValueError("invalid dni field")
+        bet.dni = data[current_offset:dni_end].decode('utf-8')
+        current_offset = dni_end + 1
+        
+        # Read nacimiento
+        nacimiento_end = self._find_next_separator(data, current_offset)
+        if nacimiento_end == -1:
+            raise ValueError("invalid nacimiento field")
+        bet.nacimiento = data[current_offset:nacimiento_end].decode('utf-8')
+        current_offset = nacimiento_end + 1
+        
+        # Read numero (last field, no separator)
+        # Find the next separator to determine where this bet ends
+        next_separator = self._find_next_separator(data, current_offset)
+        if next_separator == -1:
+            # No next separator found, this is the last bet
+            bet_end = len(data)
+        else:
+            # Next separator found, this is the end of the current bet
+            bet_end = next_separator
+        
+        bet.numero = data[current_offset:bet_end].decode('utf-8')
+        
+        return bet, bet_end
     
     def _find_next_separator(self, data, offset):
         """Find the next field separator starting from offset"""
@@ -182,16 +170,12 @@ class Protocol:
     
     def serialize_response(self, resp):
         """Convert Response to binary format"""
-        # Response format: [endianness][success][separator][message]
+        # Response format: [success][separator][message]
         message_bytes = resp.message.encode('utf-8')
-        total_size = RESPONSE_HEADER_SIZE + len(message_bytes)  # endianness + success + separator + message bytes
+        total_size = RESPONSE_HEADER_SIZE + len(message_bytes)  # success + separator + message bytes
         
         buffer = bytearray(total_size)
         offset = 0
-        
-        # Write endianness marker
-        buffer[offset] = ENDIANNESS_MARKER
-        offset += 1
         
         # Write success flag
         buffer[offset] = 0x01 if resp.success else 0x00

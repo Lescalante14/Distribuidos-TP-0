@@ -8,21 +8,11 @@ import (
 
 const (
 	// Protocol constants
-	ENDIANNESS_MARKER    = 0x01            // Big endian marker
 	FIELD_SEPARATOR      = 0x00            // Null byte separator
 	MAX_MESSAGE_SIZE     = 1024 * 1024 * 2 // 2MB
 	PAYLOAD_LENGTH_BYTES = 4               // 4 bytes for the length of the message
-	RESPONSE_HEADER_SIZE = 3               // 3 bytes for the endianness marker, success flag, and separator
+	RESPONSE_HEADER_SIZE = 2               // 2 bytes for the success flag and separator
 )
-
-// BetDataBinary represents a lottery bet in binary format
-type BetDataBinary struct {
-	Nombre     string
-	Apellido   string
-	DNI        string
-	Nacimiento string
-	Numero     string
-}
 
 // Protocol handles binary communication protocol
 type Protocol struct{}
@@ -44,51 +34,19 @@ func writeAll(w io.Writer, b []byte) error {
 }
 
 // SerializeBet converts BetData to binary format
-func (p *Protocol) SerializeBet(bet *BetDataBinary) ([]byte, error) {
+func (p *Protocol) SerializeBet(bet *BetData) ([]byte, error) {
 	log.Debugf("action: serialize_bet | result: in_progress | bet: %v", bet)
+
 	// Calculate total size
-	totalSize := 1                       // endianness marker
-	totalSize += len(bet.Nombre) + 1     // nombre + separator
-	totalSize += len(bet.Apellido) + 1   // apellido + separator
-	totalSize += len(bet.DNI) + 1        // dni + separator
-	totalSize += len(bet.Nacimiento) + 1 // nacimiento + separator
-	totalSize += len(bet.Numero)         // numero (no final separator)
+	totalSize := p.calculateBetSize(bet)
 	log.Debugf("action: serialize_bet | result: in_progress | totalSize: %v", totalSize)
 
 	// Create buffer
 	buffer := make([]byte, totalSize)
 	offset := 0
 
-	// Write endianness marker
-	buffer[offset] = ENDIANNESS_MARKER
-	offset++
-
-	// Write nombre
-	copy(buffer[offset:], []byte(bet.Nombre))
-	offset += len(bet.Nombre)
-	buffer[offset] = FIELD_SEPARATOR
-	offset++
-
-	// Write apellido
-	copy(buffer[offset:], []byte(bet.Apellido))
-	offset += len(bet.Apellido)
-	buffer[offset] = FIELD_SEPARATOR
-	offset++
-
-	// Write dni
-	copy(buffer[offset:], []byte(bet.DNI))
-	offset += len(bet.DNI)
-	buffer[offset] = FIELD_SEPARATOR
-	offset++
-
-	// Write nacimiento
-	copy(buffer[offset:], []byte(bet.Nacimiento))
-	offset += len(bet.Nacimiento)
-	buffer[offset] = FIELD_SEPARATOR
-	offset++
-
-	// Write numero (no final separator)
-	copy(buffer[offset:], []byte(bet.Numero))
+	// Serialize the bet
+	p.serializeBetFields(bet, buffer, &offset)
 
 	log.Debugf("action: serialize_bet | result: success | buffer: %v", buffer)
 
@@ -102,14 +60,7 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 	// Calculate total size for all bets
 	totalSize := 0
 	for _, bet := range bets {
-		// Each bet: endianness marker + fields + separators
-		betSize := 1                       // endianness marker
-		betSize += len(bet.Nombre) + 1     // nombre + separator
-		betSize += len(bet.Apellido) + 1   // apellido + separator
-		betSize += len(bet.DNI) + 1        // dni + separator
-		betSize += len(bet.Nacimiento) + 1 // nacimiento + separator
-		betSize += len(bet.Numero)         // numero (no final separator)
-		totalSize += betSize
+		totalSize += p.calculateBetSize(&bet)
 	}
 
 	log.Debugf("action: serialize_batch | result: in_progress | totalSize: %v", totalSize)
@@ -120,42 +71,52 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 
 	// Serialize each bet
 	for _, bet := range bets {
-		// Write endianness marker
-		buffer[offset] = ENDIANNESS_MARKER
-		offset++
-
-		// Write nombre
-		copy(buffer[offset:], []byte(bet.Nombre))
-		offset += len(bet.Nombre)
-		buffer[offset] = FIELD_SEPARATOR
-		offset++
-
-		// Write apellido
-		copy(buffer[offset:], []byte(bet.Apellido))
-		offset += len(bet.Apellido)
-		buffer[offset] = FIELD_SEPARATOR
-		offset++
-
-		// Write dni
-		copy(buffer[offset:], []byte(bet.DNI))
-		offset += len(bet.DNI)
-		buffer[offset] = FIELD_SEPARATOR
-		offset++
-
-		// Write nacimiento
-		copy(buffer[offset:], []byte(bet.Nacimiento))
-		offset += len(bet.Nacimiento)
-		buffer[offset] = FIELD_SEPARATOR
-		offset++
-
-		// Write numero (no final separator)
-		copy(buffer[offset:], []byte(bet.Numero))
-		offset += len(bet.Numero)
+		p.serializeBetFields(&bet, buffer, &offset)
 	}
 
 	log.Debugf("action: serialize_batch | result: success | buffer_size: %v", len(buffer))
 
 	return buffer, nil
+}
+
+// calculateBetSize calculates the size needed to serialize a single bet
+func (p *Protocol) calculateBetSize(bet *BetData) int {
+	return len(bet.Nombre) + 1 + // nombre + separator
+		len(bet.Apellido) + 1 + // apellido + separator
+		len(bet.DNI) + 1 + // dni + separator
+		len(bet.Nacimiento) + 1 + // nacimiento + separator
+		len(bet.Numero) // numero (no final separator)
+}
+
+// serializeBetFields serializes the fields of a bet into the buffer at the given offset
+func (p *Protocol) serializeBetFields(bet *BetData, buffer []byte, offset *int) {
+	// Write nombre
+	copy(buffer[*offset:], []byte(bet.Nombre))
+	*offset += len(bet.Nombre)
+	buffer[*offset] = FIELD_SEPARATOR
+	*offset++
+
+	// Write apellido
+	copy(buffer[*offset:], []byte(bet.Apellido))
+	*offset += len(bet.Apellido)
+	buffer[*offset] = FIELD_SEPARATOR
+	*offset++
+
+	// Write dni
+	copy(buffer[*offset:], []byte(bet.DNI))
+	*offset += len(bet.DNI)
+	buffer[*offset] = FIELD_SEPARATOR
+	*offset++
+
+	// Write nacimiento
+	copy(buffer[*offset:], []byte(bet.Nacimiento))
+	*offset += len(bet.Nacimiento)
+	buffer[*offset] = FIELD_SEPARATOR
+	*offset++
+
+	// Write numero (no final separator)
+	copy(buffer[*offset:], []byte(bet.Numero))
+	*offset += len(bet.Numero)
 }
 
 // SendMessage sends a message using the protocol: length + data
@@ -208,27 +169,22 @@ type Response struct {
 
 // DeserializeResponse converts binary data to Response
 func (p *Protocol) DeserializeResponse(data []byte) (*Response, error) {
-	if len(data) < RESPONSE_HEADER_SIZE { // 3 bytes for the endianness marker, success flag, and separator
+	if len(data) < RESPONSE_HEADER_SIZE {
 		return nil, errors.New("response data too short")
-	}
-
-	// Check endianness marker
-	if data[0] != ENDIANNESS_MARKER {
-		return nil, errors.New("invalid endianness marker")
 	}
 
 	resp := &Response{}
 
 	// Read success flag
-	resp.Success = data[1] == 0x01 // 0x01 for success, 0x00 for failure
+	resp.Success = data[0] == 0x01 // 0x01 for success, 0x00 for failure
 
 	// Skip separator
-	if data[2] != FIELD_SEPARATOR {
+	if data[1] != FIELD_SEPARATOR {
 		return nil, errors.New("invalid response format")
 	}
 
 	// Read message (rest of the data)
-	resp.Message = string(data[3:])
+	resp.Message = string(data[2:])
 
 	return resp, nil
 }
