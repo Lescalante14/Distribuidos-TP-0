@@ -191,3 +191,4 @@ Se usa multithreading en el servidor para aceptar conexiones y procesar mensajes
 - un thread por cliente
 - se elimina el polling
 - Al ser tareas no CPU intensivas, se utiliza multithreading y no hay problema con GIL de python
+- Se crean monitores para sincronizar el acceso al archivo de apuestas y el sorteo
