@@ -26,12 +26,15 @@ type ClientConfig struct {
 
 // BetData represents a lottery bet
 type BetData struct {
+	Agency     string
 	Nombre     string
 	Apellido   string
 	DNI        string
 	Nacimiento string
 	Numero     string
 }
+
+const BET_DATA_FIELDS_COUNT = 6
 
 // Client Entity that encapsulates how
 type Client struct {
@@ -51,6 +54,7 @@ func NewClient(config ClientConfig) *Client {
 		config:       config,
 		shutdownChan: make(chan os.Signal, 1),
 		betData: BetData{
+			Agency:     os.Getenv("CLI_ID"),
 			Nombre:     os.Getenv("NOMBRE"),
 			Apellido:   os.Getenv("APELLIDO"),
 			DNI:        os.Getenv("DOCUMENTO"),
@@ -116,12 +120,13 @@ func (c *Client) readBetsChunk(scanner *bufio.Scanner, chunkSize int) []BetData 
 
 		// Parse CSV line manually since the format is simple
 		fields := strings.Split(line, ",")
-		if len(fields) != 5 {
+		if len(fields) != BET_DATA_FIELDS_COUNT-1 { // -1 because the first field is the agency
 			log.Warningf("action: parse_csv_line | result: fail | line: %s | reason: invalid field count", line)
 			continue
 		}
 
 		bet := BetData{
+			Agency:     c.config.ID,
 			Nombre:     strings.TrimSpace(fields[0]),
 			Apellido:   strings.TrimSpace(fields[1]),
 			DNI:        strings.TrimSpace(fields[2]),

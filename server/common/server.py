@@ -98,15 +98,14 @@ class Server:
         bets_to_store = []
         success = True
         
-        for bet_data in bet_data_list:
+        for bet in bet_data_list:
             try:
                 # Store the bet
-                bet = Bet(1, bet_data.nombre, bet_data.apellido, bet_data.dni, bet_data.nacimiento, bet_data.numero)
                 bets_to_store.append(bet)
                 # MANDATORY LOG FOR TESTING ej 5
                 # logging.info(f'action: apuesta_almacenada | result: success | dni: {bet_data.dni} | numero: {bet_data.numero}')
             except Exception as e:
-                logging.error(f'action: process_bet | result: fail | dni: {bet_data.dni} | error: {e}')
+                logging.error(f'action: process_bet | result: fail | dni: {bet.document} | error: {e}')
                 success = False
                 break
         
@@ -170,6 +169,7 @@ class Server:
             response = WinnersResponse(success=False, message="Lottery not yet completed", winners=[], count=0)
         else:
             # Get winners for this agency
+            logging.info(f'action: winners_query | result: success | agency: {query.agency_id} winners: {self._agency_winners}')
             winners = self._agency_winners.get(query.agency_id, [])
             response = WinnersResponse(success=True, message=f"Found {len(winners)} winners", winners=winners, count=len(winners))
         
@@ -191,6 +191,7 @@ class Server:
                 if has_won(bet):  # has_won doesn't take winning_number parameter
                     # Extract agency_id from bet
                     agency_id = str(bet.agency)  # Use the agency field from the bet
+                    logging.info(f'action: lottery_completed | result: success | agency: {agency_id} dni: {bet.document}')
                     self._agency_winners[agency_id].append(bet.document)  # Use document field for DNI
             
             self._lottery_completed = True

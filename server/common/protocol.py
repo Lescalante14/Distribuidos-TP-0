@@ -1,5 +1,7 @@
 import logging
 
+from common.utils import Bet
+
 # Protocol constants
 FIELD_SEPARATOR = 0x00    # Null byte separator between fields
 BET_SEPARATOR = 0xFF      # Separator between different bets
@@ -11,16 +13,6 @@ RESPONSE_HEADER_SIZE = 2 # 2 bytes for the success flag and separator
 MESSAGE_TYPE_BET_BATCH = 0x01
 MESSAGE_TYPE_FINISH_NOTIFY = 0x02
 MESSAGE_TYPE_WINNERS_QUERY = 0x03
-
-class BetData:
-    """Represents a lottery bet in binary format"""
-    
-    def __init__(self, nombre="", apellido="", dni="", nacimiento="", numero=""):
-        self.nombre = nombre
-        self.apellido = apellido
-        self.dni = dni
-        self.nacimiento = nacimiento
-        self.numero = numero
 
 
 class Response:
@@ -85,48 +77,55 @@ class Protocol:
         return bytes(buf)
     
     def deserialize_bet(self, data):
-        """Convert binary data to BetData"""
+        """Convert binary data to Bet"""
         if len(data) < 1: # At least 1 byte for the first field
             raise ValueError("data too short")
         
-        bet = BetData()
         offset = 0
+
+        # Read agency
+        agency_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if agency_end == -1:
+            raise ValueError("invalid agency field")
+        agency = data[offset:agency_end].decode('utf-8')
+        offset = agency_end + 1
         
         # Read nombre
         nombre_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if nombre_end == -1:
             raise ValueError("invalid nombre field")
-        bet.nombre = data[offset:nombre_end].decode('utf-8')
+        nombre = data[offset:nombre_end].decode('utf-8')
         offset = nombre_end + 1
         
         # Read apellido
         apellido_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if apellido_end == -1:
             raise ValueError("invalid apellido field")
-        bet.apellido = data[offset:apellido_end].decode('utf-8')
+        apellido = data[offset:apellido_end].decode('utf-8')
         offset = apellido_end + 1
         
         # Read dni
         dni_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if dni_end == -1:
             raise ValueError("invalid dni field")
-        bet.dni = data[offset:dni_end].decode('utf-8')
+        dni = data[offset:dni_end].decode('utf-8')
         offset = dni_end + 1
         
         # Read nacimiento
         nacimiento_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
         if nacimiento_end == -1:
             raise ValueError("invalid nacimiento field")
-        bet.nacimiento = data[offset:nacimiento_end].decode('utf-8')
+        nacimiento = data[offset:nacimiento_end].decode('utf-8')
         offset = nacimiento_end + 1
         
         # Read numero (last field, no separator)
-        bet.numero = data[offset:].decode('utf-8')
+        numero = data[offset:].decode('utf-8')
+        bet = Bet(agency, nombre, apellido, dni, nacimiento, numero)
         
         return bet
     
     def deserialize_batch(self, data):
-        """Convert binary data to a list of BetData"""
+        """Convert binary data to a list of Bet"""
         bets = []
         offset = 0
 

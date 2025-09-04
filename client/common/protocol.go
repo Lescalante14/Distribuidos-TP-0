@@ -108,7 +108,8 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 
 // calculateBetSize calculates the size needed to serialize a single bet
 func (p *Protocol) calculateBetSize(bet *BetData) int {
-	return len(bet.Nombre) + 1 + // nombre + separator
+	return len(bet.Agency) + 1 + // agency + separator
+		len(bet.Nombre) + 1 + // nombre + separator
 		len(bet.Apellido) + 1 + // apellido + separator
 		len(bet.DNI) + 1 + // dni + separator
 		len(bet.Nacimiento) + 1 + // nacimiento + separator
@@ -117,6 +118,12 @@ func (p *Protocol) calculateBetSize(bet *BetData) int {
 
 // serializeBetFields serializes the fields of a bet into the buffer at the given offset
 func (p *Protocol) serializeBetFields(bet *BetData, buffer []byte, offset *int) {
+	// Write agency
+	copy(buffer[*offset:], []byte(bet.Agency))
+	*offset += len(bet.Agency)
+	buffer[*offset] = FIELD_SEPARATOR
+	*offset++
+
 	// Write nombre
 	copy(buffer[*offset:], []byte(bet.Nombre))
 	*offset += len(bet.Nombre)
