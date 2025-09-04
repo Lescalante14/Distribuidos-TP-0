@@ -188,6 +188,12 @@ La corrección personal tendrá en cuenta la calidad del código entregado y cas
 
 El protocolo implementado para el sistema de Lotería Nacional utiliza un formato binario con separadores que garantiza la integridad de los datos y evita los problemas de _short read_ y _short write_.
 
+### Como probar:
+
+```bash
+make docker-compose-up
+```
+
 #### Estructura del Protocolo
 
 **Formato de Mensaje:**
@@ -195,7 +201,7 @@ El protocolo implementado para el sistema de Lotería Nacional utiliza un format
 [Longitud del mensaje: 4 bytes][Datos del mensaje: N bytes]
 ```
 
-- **Longitud del mensaje**: Entero de 32 bits en formato big-endian que indica el tamaño exacto de los datos que siguen
+- **Longitud del mensaje**: Entero de 32 bits en formato **big-endian** que indica el tamaño exacto de los datos que siguen
 - **Datos del mensaje**: Contenido binario con separadores de bytes cero
 
 #### Formato Binario de Datos
@@ -243,7 +249,7 @@ Donde:
 
 #### Ventajas del Protocolo Binario
 
-1. **Eficiencia**: Menor overhead que JSON, especialmente para datos simples
+1. **Eficiencia**: Menor overhead que JSON o similares, especialmente para datos simples
 2. **Evita Short Read/Write**: Protocolo length-prefixed garantiza recepción completa
 3. **Big Endian Standard**: Usa el estándar de red (Network Byte Order)
 4. **Compact Format**: Smaller message sizes
