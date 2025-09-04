@@ -182,108 +182,94 @@ La corrección personal tendrá en cuenta la calidad del código entregado y cas
 
 ---
 
-## Protocolo de Comunicación Implementado
+## Procesamiento por Batches (Ejercicio 6)
 
-### Ejercicio 5: Protocolo Binario de Lotería Nacional
+### Implementación de Procesamiento por Chunks
 
-El protocolo implementado para el sistema de Lotería Nacional utiliza un formato binario con separadores que garantiza la integridad de los datos y evita los problemas de _short read_ y _short write_.
+El ejercicio 6 extiende el sistema para procesar múltiples apuestas en una sola transacción (batch processing), mejorando significativamente la eficiencia de transmisión y procesamiento.
 
-#### Estructura del Protocolo
+#### Características Principales
 
-**Formato de Mensaje:**
+**Configuración de Batch:**
+- **Tamaño configurable**: `batch.maxAmount: 99` en `config.yaml`
+- **Límite de 8kB**: Los paquetes no exceden los 8kB para evitar problemas de red
+- **Archivos CSV**: Cada agencia lee desde `/data/agency-{N}.csv`
+
+#### Estructura del Protocolo Extendido
+
+**Formato de Batch (Binario):**
 ```
-[Longitud del mensaje: 4 bytes][Datos del mensaje: N bytes]
-```
-
-- **Longitud del mensaje**: Entero de 32 bits en formato big-endian que indica el tamaño exacto de los datos que siguen
-- **Datos del mensaje**: Contenido binario con separadores de bytes cero
-
-#### Formato Binario de Datos
-
-**Estructura de Apuesta (Binario):**
-```
-[nombre][separator][apellido][separator][dni][separator][nacimiento][separator][numero]
+[bet1][BET_SEPARATOR][bet2][BET_SEPARATOR]...[betN]
 ```
 
 Donde:
-- **separator**: 1 byte (0x00) para separar campos
-- **campos**: Strings UTF-8 codificados
-- **Nota**: No hay separador final después del último campo (numero)
+- **bet**: Estructura individual de apuesta (mismo formato del ejercicio 5)
+- **BET_SEPARATOR**: 1 byte (0xFF) para separar apuestas
+- **Sin separador final**: La última apuesta no tiene separador
 
-**Ejemplo de estructura:**
+**Ejemplo de batch con 2 apuestas:**
 ```
-"Santiago Lionel" 0x00 "Lorca" 0x00 "30904465" 0x00 "1999-03-17" 0x00 "7574"
+"Santiago" 0x00 "Lorca" 0x00 "30904465" 0x00 "1999-03-17" 0x00 "7574" 0xFF "María" 0x00 "García" 0x00 "12345678" 0x00 "1985-06-15" 0x00 "1234"
 ```
-
-**Respuesta del Servidor (Binario):**
-```
-[success_flag][separator][message]
-```
-
-Donde:
-- **success_flag**: 1 byte (0x01 para éxito, 0x00 para error)
-- **separator**: 1 byte (0x00)
-- **message**: String UTF-8 con descripción
 
 #### Implementación Técnica
 
-**Cliente (Go) - `client/common/protocol.go`:**
-- Clase `Protocol` encapsula toda la lógica del protocolo
-- Método `SerializeBet()` convierte `BetDataBinary` a formato binario
-- Método `DeserializeResponse()` convierte respuesta binaria a `Response`
-- Utiliza `encoding/binary` para manejo de longitud en big-endian
-- Manejo robusto de errores con validación de formato
+**Cliente (Go) - `client/common/client.go`:**
+- **Lectura por chunks**: `readBetsChunk()` lee exactamente `batch.maxAmount` líneas del CSV
+- **Parsing CSV manual**: Implementación simple con `strings.Split()` para evitar dependencias
+- **Validación de campos**: Verifica que cada línea tenga exactamente 5 campos
+- **Contador de progreso**: Mantiene `totalBetsProcessed` y `batchNum` para logging
 
-**Servidor (Python) - `server/common/protocol.py`:**
-- Clase `Protocol` encapsula toda la lógica del protocolo
-- Método `serialize_bet()` convierte `BetData` a formato binario
-- Método `deserialize_response()` convierte respuesta binaria a `Response`
-- **Sin uso de struct library**: Implementación manual con `_int_to_bytes()` y `_bytes_to_int()`
-- Validación completa de formato
+**Servidor (Python) - `server/common/server.py`:**
+- **Deserialización de batch**: `deserialize_batch()` convierte datos binarios a lista de apuestas
+- **Procesamiento atómico**: Todas las apuestas del batch se procesan juntas
+- **Rollback en error**: Si una apuesta falla, todo el batch se rechaza
+- **Logging detallado**: Registra cantidad de apuestas procesadas
 
-#### Ventajas del Protocolo Binario
+#### Flujo de Procesamiento
 
-1. **Eficiencia**: Menor overhead que JSON, especialmente para datos simples
-2. **Evita Short Read/Write**: Protocolo length-prefixed garantiza recepción completa
-3. **Big Endian Standard**: Usa el estándar de red (Network Byte Order)
-4. **Compact Format**: Smaller message sizes
-5. **Type Safety**: Binary format is less prone to parsing errors
-6. **Performance**: Faster serialization/deserialization
-7. **Extensibility**: Easy to add new fields without breaking compatibility
-8. **No External Dependencies**: No requiere librerías externas como struct
+1. **Cliente abre CSV**: Lee desde `/data/agency-{ID}.csv`
+2. **Lectura por chunks**: Lee `batch.maxAmount` líneas del archivo
+3. **Parsing y validación**: Convierte cada línea a `BetData`
+4. **Serialización de batch**: Convierte múltiples apuestas a formato binario
+5. **Envío al servidor**: Una sola conexión TCP para todo el batch
+6. **Procesamiento atómico**: Servidor procesa todas las apuestas o rechaza todo
+7. **Respuesta**: Servidor confirma éxito/fallo del batch completo
+8. **Continuación**: Cliente lee siguiente chunk hasta EOF
 
-#### Flujo de Comunicación
+#### Ventajas del Procesamiento por Batches
 
-1. Cliente establece conexión TCP con el servidor
-2. Cliente crea `BetDataBinary` con datos de la apuesta
-3. Cliente serializa a binario usando `Protocol.SerializeBet()`
-4. Cliente envía longitud (4 bytes) + datos binarios usando `Protocol.SendMessage()`
-5. Servidor recibe longitud y luego los datos completos usando `Protocol.receive_message()`
-6. Servidor deserializa usando `Protocol.deserialize_bet()`
-7. Servidor procesa la apuesta y almacena la información
-8. Servidor crea `Response` y serializa usando `Protocol.serialize_response()`
-9. Servidor envía respuesta usando `Protocol.send_message()`
-10. Cliente recibe y deserializa respuesta usando `Protocol.DeserializeResponse()`
-11. Conexión se cierra y se registra el resultado en logs
+1. **Eficiencia de Red**: Menos conexiones TCP (una por batch vs una por apuesta)
+2. **Mejor Rendimiento**: Reducción de overhead de conexión
+3. **Procesamiento Atómico**: Garantiza consistencia de datos
+4. **Configuración Flexible**: Tamaño de batch ajustable según necesidades
+5. **Escalabilidad**: Permite procesar grandes volúmenes eficientemente
+6. **Manejo de Errores**: Rollback completo en caso de fallo
 
-#### Estructura de Archivos
+#### Logs de Ejemplo
 
-```
-client/common/
-├── client.go      # Lógica principal del cliente
-└── protocol.go     # Implementación del protocolo binario
-
-server/common/
-├── server.py       # Lógica principal del servidor
-└── protocol.py     # Implementación del protocolo binario
+**Cliente:**
+```bash
+client1 | action: start_processing | result: success | client_id: 1 | batch_size: 99
+client1 | action: read_chunk | result: success | client_id: 1 | batch_num: 1 | chunk_size: 99
+client1 | action: apuesta_enviada | result: success | client_id: 1 | batch_size: 99 | total_processed: 99
 ```
 
-#### Características Especiales
+**Servidor:**
+```bash
+server | action: receive_message | result: success | ip: 172.25.125.3 | bets_count: 99
+server | action: apuesta_recibida | result: success | cantidad: 99
+```
 
-- **Sin Separador Final**: El último campo (numero) no tiene separador al final
-- **Length-Prefixed**: Cada mensaje incluye su longitud al inicio para evitar short read/write
-- **Big Endian Standard**: Usa el estándar de red para compatibilidad cross-architecture
-- **Sin Dependencias Externas**: No utiliza librerías como struct en Python
-- **Separación de Responsabilidades**: Protocolo completamente encapsulado en clases separadas
+#### Configuración y Volúmenes
 
-Este protocolo binario proporciona una base sólida y eficiente para los ejercicios posteriores, manteniendo la separación de responsabilidades y la robustez en la comunicación.
+- **Tamaño por defecto**: 99 apuestas por batch (equilibrio entre eficiencia y tamaño de paquete)
+- **Archivos de datos**: Cada agencia tiene su archivo CSV numerado
+- **Volúmenes**: Sistema puede procesar cientos de apuestas por agencia
+- **Límite de paquete**: Configurado para no exceder 8kB por transacción
+
+Esta implementación proporciona una base sólida para el procesamiento eficiente de grandes volúmenes de datos, manteniendo la robustez y escalabilidad del sistema.
+
+
+
+Nota: TODO:Validación de 8kb
