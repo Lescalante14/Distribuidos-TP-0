@@ -1,7 +1,8 @@
 import logging
 
 # Protocol constants
-FIELD_SEPARATOR = 0x00    # Null byte separator
+FIELD_SEPARATOR = 0x00    # Null byte separator between fields
+BET_SEPARATOR = 0xFF      # Separator between different bets
 PAYLOAD_LENGTH_BYTES = 4  # 4 bytes for the length of the message
 MAX_MESSAGE_SIZE = 1024 * 1024 * 2 # 2MB
 RESPONSE_HEADER_SIZE = 2 # 2 bytes for the success flag and separator
@@ -56,7 +57,43 @@ class Protocol:
     
     def deserialize_bet(self, data):
         """Convert binary data to BetData"""
-        bet, _ = self._deserialize_bet_with_end(data, 0)
+        if len(data) < 1: # At least 1 byte for the first field
+            raise ValueError("data too short")
+        
+        bet = BetData()
+        offset = 0
+        
+        # Read nombre
+        nombre_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if nombre_end == -1:
+            raise ValueError("invalid nombre field")
+        bet.nombre = data[offset:nombre_end].decode('utf-8')
+        offset = nombre_end + 1
+        
+        # Read apellido
+        apellido_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if apellido_end == -1:
+            raise ValueError("invalid apellido field")
+        bet.apellido = data[offset:apellido_end].decode('utf-8')
+        offset = apellido_end + 1
+        
+        # Read dni
+        dni_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if dni_end == -1:
+            raise ValueError("invalid dni field")
+        bet.dni = data[offset:dni_end].decode('utf-8')
+        offset = dni_end + 1
+        
+        # Read nacimiento
+        nacimiento_end = self._find_next_generic_separator(data, offset, FIELD_SEPARATOR)
+        if nacimiento_end == -1:
+            raise ValueError("invalid nacimiento field")
+        bet.nacimiento = data[offset:nacimiento_end].decode('utf-8')
+        offset = nacimiento_end + 1
+        
+        # Read numero (last field, no separator)
+        bet.numero = data[offset:].decode('utf-8')
+        
         return bet
     
     def deserialize_batch(self, data):
@@ -65,72 +102,32 @@ class Protocol:
         offset = 0
         
         while offset < len(data):
-            # Try to deserialize a single bet starting from current offset
-            try:
-                bet, bet_end = self._deserialize_bet_with_end(data, offset)
-                bets.append(bet)
-                offset = bet_end
-            except ValueError as e:
-                # If we can't parse a bet, we'll return what we have so far
-                # and let the caller handle the error
-                break
+            # Find the end of the current bet (next bet separator)
+            bet_end = self._find_next_generic_separator(data, offset, BET_SEPARATOR)
+            if bet_end == -1:
+                # No bet separator found, use remaining data
+                bet_end = len(data)
+            
+            # Extract single bet data
+            bet_data = data[offset:bet_end]
+            if len(bet_data) > 0:
+                try:
+                    bet = self.deserialize_bet(bet_data)
+                    bets.append(bet)
+                except ValueError as e:
+                    # If we can't parse a bet, we'll return what we have so far
+                    # and let the caller handle the error
+                    break
+            
+            # Move to next bet (skip the bet separator)
+            offset = bet_end + 1 if bet_end < len(data) else bet_end
         
         return bets
     
-    def _deserialize_bet_with_end(self, data, offset):
-        """Convert binary data to BetData and return the end position"""
-        if len(data) < offset + 1: # At least 1 byte for the first field
-            raise ValueError("data too short")
-        
-        bet = BetData()
-        current_offset = offset
-        
-        # Read nombre
-        nombre_end = self._find_next_separator(data, current_offset)
-        if nombre_end == -1:
-            raise ValueError("invalid nombre field")
-        bet.nombre = data[current_offset:nombre_end].decode('utf-8')
-        current_offset = nombre_end + 1
-        
-        # Read apellido
-        apellido_end = self._find_next_separator(data, current_offset)
-        if apellido_end == -1:
-            raise ValueError("invalid apellido field")
-        bet.apellido = data[current_offset:apellido_end].decode('utf-8')
-        current_offset = apellido_end + 1
-        
-        # Read dni
-        dni_end = self._find_next_separator(data, current_offset)
-        if dni_end == -1:
-            raise ValueError("invalid dni field")
-        bet.dni = data[current_offset:dni_end].decode('utf-8')
-        current_offset = dni_end + 1
-        
-        # Read nacimiento
-        nacimiento_end = self._find_next_separator(data, current_offset)
-        if nacimiento_end == -1:
-            raise ValueError("invalid nacimiento field")
-        bet.nacimiento = data[current_offset:nacimiento_end].decode('utf-8')
-        current_offset = nacimiento_end + 1
-        
-        # Read numero (last field, no separator)
-        # Find the next separator to determine where this bet ends
-        next_separator = self._find_next_separator(data, current_offset)
-        if next_separator == -1:
-            # No next separator found, this is the last bet
-            bet_end = len(data)
-        else:
-            # Next separator found, this is the end of the current bet
-            bet_end = next_separator
-        
-        bet.numero = data[current_offset:bet_end].decode('utf-8')
-        
-        return bet, bet_end
-    
-    def _find_next_separator(self, data, offset):
-        """Find the next field separator starting from offset"""
+    def _find_next_generic_separator(self, data, offset, separator):
+        """Find the next generic separator starting from offset"""
         for i in range(offset, len(data)):
-            if data[i] == FIELD_SEPARATOR:
+            if data[i] == separator:
                 return i
         return -1
     

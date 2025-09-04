@@ -8,7 +8,8 @@ import (
 
 const (
 	// Protocol constants
-	FIELD_SEPARATOR      = 0x00            // Null byte separator
+	FIELD_SEPARATOR      = 0x00            // Null byte separator between fields
+	BET_SEPARATOR        = 0xFF            // Separator between different bets
 	MAX_MESSAGE_SIZE     = 1024 * 1024 * 2 // 2MB
 	PAYLOAD_LENGTH_BYTES = 4               // 4 bytes for the length of the message
 	RESPONSE_HEADER_SIZE = 2               // 2 bytes for the success flag and separator
@@ -60,7 +61,7 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 	// Calculate total size for all bets
 	totalSize := 0
 	for _, bet := range bets {
-		totalSize += p.calculateBetSize(&bet) + 1 // +1 for the separator between bets
+		totalSize += p.calculateBetSize(&bet) + 1 // +1 for bet separator
 	}
 
 	log.Debugf("action: serialize_batch | result: in_progress | totalSize: %v", totalSize)
@@ -70,12 +71,10 @@ func (p *Protocol) SerializeBatch(bets []BetData) ([]byte, error) {
 	offset := 0
 
 	// Serialize each bet
-	for i, bet := range bets {
+	for _, bet := range bets {
 		p.serializeBetFields(&bet, buffer, &offset)
-		if i < len(bets)-1 { // add separator between bets but not for the last bet
-			buffer[offset] = FIELD_SEPARATOR
-			offset++
-		}
+		buffer[offset] = BET_SEPARATOR // Add bet separator
+		offset++
 	}
 
 	log.Debugf("action: serialize_batch | result: success | buffer_size: %v", len(buffer))
