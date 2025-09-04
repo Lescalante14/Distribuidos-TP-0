@@ -163,7 +163,7 @@ class Server:
             logging.error(f'action: deserialize_winners_query | result: fail | ip: {addr[0]} | error: {e}')
             return
         
-        logging.info(f'action: winners_query | result: success | agency: {query.agency_id}')
+        logging.info(f'action: winners_query | result: success | agency: {query.agency_id} lottery completed: {self._lottery_completed}')
         
         # Check if lottery has been completed
         if not self._lottery_completed:
@@ -176,6 +176,7 @@ class Server:
         # Send response with type
         response_bytes = self._protocol.serialize_winners_response(response)
         self._protocol.send_message_with_type(client_sock, MESSAGE_TYPE_WINNERS_QUERY, response_bytes)
+        client_sock.close() #TODO: Remove this
 
     def __perform_lottery(self):
         """Perform the lottery and determine winners"""
