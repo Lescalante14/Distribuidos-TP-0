@@ -182,11 +182,116 @@ La corrección personal tendrá en cuenta la calidad del código entregado y cas
 
 ---
 
-## Ejercicio 7
+## Sistema de Sorteo y Consulta de Ganadores (Ejercicio 7)
 
+### Implementación del Sorteo de Lotería Nacional
 
-Obs:
+El ejercicio 7 implementa un sistema completo de sorteo que incluye notificación de finalización, ejecución del sorteo y consulta de ganadores por agencia.
 
-1. El servidor no debe responder hasta que todas las apuestas del batch sean procesadas correctamente.
-2. estrategia de polling para solicitar winners
-3. se agrega agency id al mensaje de Bets
+#### Características Principales
+
+**Flujo del Sistema:**
+1. **Fase 1**: Procesamiento de apuestas por batches (ejercicio 6)
+2. **Fase 2**: Notificación de finalización de cada agencia
+3. **Fase 3**: Ejecución del sorteo cuando todas las agencias terminan
+4. **Fase 4**: Consulta de ganadores por agencia usando polling
+
+#### Estructura del Protocolo Extendido
+
+**Tipos de Mensaje:**
+- `MESSAGE_TYPE_BET_BATCH (0x01)`: Envío de apuestas por lotes
+- `MESSAGE_TYPE_FINISH_NOTIFY (0x02)`: Notificación de finalización
+- `MESSAGE_TYPE_WINNERS_QUERY (0x03)`: Consulta de ganadores
+
+**Formato de Notificación de Finalización:**
+```
+[agency_id]
+```
+
+**Formato de Consulta de Ganadores:**
+```
+[agency_id]
+```
+
+**Respuesta de Ganadores:**
+```
+[success_flag][separator][winner1][separator][winner2]...
+```
+
+#### Implementación Técnica
+
+**Cliente (Go) - `client/common/client.go`:**
+- **Notificación de finalización**: `sendFinishNotification()` envía confirmación de que terminó
+- **Polling de ganadores**: `queryWinners()` consulta ganadores con reintentos
+- **Estrategia de reintentos**: 10 intentos con delay de 2 segundos entre consultas
+- **Agency ID**: Se incluye en todas las apuestas para identificación
+
+**Servidor (Python) - `server/common/server.py`:**
+- **Control de finalización**: `_finished_agencies` set para trackear agencias completadas
+- **Estado del sorteo**: `_lottery_completed` flag para controlar consultas
+- **Ganadores por agencia**: `_agency_winners` dict para almacenar DNIs ganadores
+- **Función de sorteo**: `__perform_lottery()` ejecuta el sorteo usando `load_bets()` y `has_won()`
+
+#### Flujo Completo del Sistema
+
+**Fase 1 - Procesamiento de Apuestas:**
+1. Cliente lee y envía apuestas por batches
+2. Servidor procesa y almacena cada batch
+3. Cliente continúa hasta terminar todos los archivos CSV
+
+**Fase 2 - Notificación de Finalización:**
+1. Cliente envía `FinishNotification` con su agency ID
+2. Servidor registra la agencia como completada
+3. Servidor verifica si todas las agencias terminaron
+
+**Fase 3 - Ejecución del Sorteo:**
+1. Cuando todas las agencias notifican finalización:
+   - Servidor ejecuta `__perform_lottery()`
+   - Carga todas las apuestas con `load_bets()`
+   - Verifica ganadores con `has_won()`
+   - Agrupa ganadores por agencia
+   - Marca sorteo como completado
+
+**Fase 4 - Consulta de Ganadores:**
+1. Cliente envía `WinnersQuery` con su agency ID
+2. Si el sorteo no está completado: servidor responde con error
+3. Si el sorteo está completado: servidor retorna ganadores de esa agencia
+4. Cliente usa polling con reintentos hasta obtener respuesta exitosa
+
+#### Ventajas del Sistema
+
+1. **Sincronización**: Todas las agencias deben terminar antes del sorteo
+2. **Integridad**: No se pueden consultar ganadores antes del sorteo
+3. **Escalabilidad**: Sistema funciona con cualquier número de agencias
+4. **Robustez**: Polling con reintentos maneja latencia de red
+5. **Privacidad**: Cada agencia solo ve sus propios ganadores
+6. **Trazabilidad**: Logs detallados de cada fase del proceso
+
+#### Logs de Ejemplo
+
+**Notificación de Finalización:**
+```bash
+client1 | action: finish_notification | result: success | client_id: 1
+server  | action: finish_notification | result: success | agency: 1
+```
+
+**Ejecución del Sorteo:**
+```bash
+server  | action: sorteo | result: success
+server  | action: lottery_completed | result: success | agency: 1 | dni: 30904465
+```
+
+**Consulta de Ganadores:**
+```bash
+client1 | action: query_winners | result: in_progress | client_id: 1 | attempt: 1/10
+client1 | action: consulta_ganadores | result: success | client_id: 1 | cant_ganadores: 1
+```
+
+#### Configuración y Parámetros
+
+- **Número de agencias**: Configurable en el servidor (`clients_count`)
+- **Estrategia de polling**: 10 reintentos con 2 segundos de delay
+- **Número ganador**: Definido en `server/common/utils.py` (`LOTTERY_WINNER_NUMBER = 7574`)
+- **Almacenamiento**: Apuestas guardadas en `bets.csv` con persistencia
+
+Esta implementación proporciona un sistema completo y robusto para el sorteo de lotería, manteniendo la integridad de los datos y la privacidad entre agencias.

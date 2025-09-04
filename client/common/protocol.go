@@ -226,36 +226,28 @@ func (p *Protocol) DeserializeResponse(data []byte) (*Response, error) {
 
 // SerializeFinishNotification converts FinishNotification to binary format
 func (p *Protocol) SerializeFinishNotification(notification *FinishNotification) ([]byte, error) {
-	// Calculate total size: agency_id + separator
-	totalSize := len(notification.AgencyID) + 1
+	// Calculate total size: agency_id only (no separator needed)
+	totalSize := len(notification.AgencyID)
 
 	buffer := make([]byte, totalSize)
 	offset := 0
 
 	// Write agency ID
 	copy(buffer[offset:], []byte(notification.AgencyID))
-	offset += len(notification.AgencyID)
-
-	// Write separator
-	buffer[offset] = FIELD_SEPARATOR
 
 	return buffer, nil
 }
 
 // SerializeWinnersQuery converts WinnersQuery to binary format
 func (p *Protocol) SerializeWinnersQuery(query *WinnersQuery) ([]byte, error) {
-	// Calculate total size: agency_id + separator
-	totalSize := len(query.AgencyID) + 1
+	// Calculate total size: agency_id only (no separator needed)
+	totalSize := len(query.AgencyID)
 
 	buffer := make([]byte, totalSize)
 	offset := 0
 
 	// Write agency ID
 	copy(buffer[offset:], []byte(query.AgencyID))
-	offset += len(query.AgencyID)
-
-	// Write separator
-	buffer[offset] = FIELD_SEPARATOR
 
 	return buffer, nil
 }
@@ -276,37 +268,21 @@ func (p *Protocol) DeserializeWinnersResponse(data []byte) (*WinnersResponse, er
 		return nil, errors.New("invalid response format")
 	}
 
-	// Parse the rest of the data
-	remainingData := string(data[2:])
-
-	// Split by field separator to get count and winners
-	parts := []byte(remainingData)
-
-	// Find the count field (first field after success)
-	offset := 0
-	countStr := ""
-	for offset < len(parts) && parts[offset] != FIELD_SEPARATOR {
-		countStr += string(parts[offset])
-		offset++
-	}
-
-	if offset < len(parts) {
-		offset++ // Skip separator
-	}
+	// Parse the rest of the data (winners list)
+	remainingData := data[2:]
 
 	// Parse winners (DNIs separated by FIELD_SEPARATOR)
 	winners := []string{}
 	currentWinner := ""
-	for offset < len(parts) {
-		if parts[offset] == FIELD_SEPARATOR {
+	for _, b := range remainingData {
+		if b == FIELD_SEPARATOR {
 			if currentWinner != "" {
 				winners = append(winners, currentWinner)
 				currentWinner = ""
 			}
 		} else {
-			currentWinner += string(parts[offset])
+			currentWinner += string(b)
 		}
-		offset++
 	}
 
 	// Add last winner if exists

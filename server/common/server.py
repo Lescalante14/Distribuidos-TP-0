@@ -166,17 +166,16 @@ class Server:
         
         # Check if lottery has been completed
         if not self._lottery_completed:
-            response = WinnersResponse(success=False, message="Lottery not yet completed", winners=[], count=0)
+            response = WinnersResponse(success=False, message="Lottery not yet completed", winners=[])
         else:
             # Get winners for this agency
             logging.info(f'action: winners_query | result: success | agency: {query.agency_id} winners: {self._agency_winners}')
             winners = self._agency_winners.get(query.agency_id, [])
-            response = WinnersResponse(success=True, message=f"Found {len(winners)} winners", winners=winners, count=len(winners))
+            response = WinnersResponse(success=True, message=f"Found {len(winners)} winners", winners=winners)
         
         # Send response with type
         response_bytes = self._protocol.serialize_winners_response(response)
         self._protocol.send_message_with_type(client_sock, MESSAGE_TYPE_WINNERS_QUERY, response_bytes)
-        client_sock.close() #TODO: Remove this
 
     def __perform_lottery(self):
         """Perform the lottery and determine winners"""
