@@ -178,3 +178,48 @@ Se espera que se redacte una sección del README en donde se indique cómo ejecu
 Se proveen [pruebas automáticas](https://github.com/7574-sistemas-distribuidos/tp0-tests) de caja negra. Se exige que la resolución de los ejercicios pase tales pruebas, o en su defecto que las discrepancias sean justificadas y discutidas con los docentes antes del día de la entrega. El incumplimiento de las pruebas es condición de desaprobación, pero su cumplimiento no es suficiente para la aprobación. Respetar las entradas de log planteadas en los ejercicios, pues son las que se chequean en cada uno de los tests.
 
 La corrección personal tendrá en cuenta la calidad del código entregado y casos de error posibles, se manifiesten o no durante la ejecución del trabajo práctico. Se pide a los alumnos leer atentamente y **tener en cuenta** los criterios de corrección informados  [en el campus](https://campusgrado.fi.uba.ar/mod/page/view.php?id=73393).
+
+
+---
+
+# RESOLUCIÓN EJERCICIO 3:
+
+## Cómo probar:
+
+Pre requisitos: tener levantado el servidor y el cliente con 
+
+```bash
+make docker-compose-up
+```
+
+```bash
+./validar-echo-server.sh
+```
+
+## Explicación del script `validar-echo-server.sh`:
+
+El script verifica que el servidor echo esté funcionando correctamente enviando un mensaje de prueba y confirmando que responde con el mismo mensaje.
+
+### Cómo funciona:
+
+1. **Lee la configuración** del servidor desde `server/config.ini` (IP y puerto)
+2. **Ejecuta un test** usando un contenedor Docker temporal con Alpine Linux que contiene netcat
+3. **Envía un mensaje** de prueba al servidor y captura la respuesta
+4. **Valida** que la respuesta sea idéntica al mensaje enviado
+
+### Características principales:
+
+- **No requiere instalar netcat** en el host (usa un contenedor temporal)
+- **No expone puertos** del servidor (usa la red Docker interna)
+- **Configuración automática** desde el archivo de configuración del servidor
+- **Limpieza automática** del contenedor de prueba
+
+### Ejemplo de salida:
+
+```bash
+$ ./validar-echo-server.sh
+Testing echo server with message: 'Hello Echo Server Test 123'
+Using server: server:12345
+action: test_echo_server | result: success
+```
+
