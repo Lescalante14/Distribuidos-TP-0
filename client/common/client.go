@@ -90,7 +90,7 @@ func (c *Client) createClientSocket() error {
 
 // setupSignalHandlers sets up signal handlers for graceful shutdown
 func (c *Client) setupSignalHandlers() {
-	signal.Notify(c.shutdownChan, syscall.SIGTERM)
+	signal.Notify(c.shutdownChan, syscall.SIGTERM, syscall.SIGINT)
 }
 
 // handleShutdown handles graceful shutdown

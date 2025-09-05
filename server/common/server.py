@@ -29,6 +29,7 @@ class Server:
         
         # Set up signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
 
     def run(self):
         """
